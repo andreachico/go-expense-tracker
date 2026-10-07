@@ -1,5 +1,28 @@
 # go-expense-tracker
+
+[![CI](https://github.com/andreachico/go-expense-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/andreachico/go-expense-tracker/actions/workflows/ci.yml)
+![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+
 A RESTful expense tracker API built with Go, PostgreSQL, and Docker. A learning project focused on Go backend development, REST APIs, database integration, testing, and clean project structure.
+
+## Architecture
+
+HTTP requests flow through a router to handlers, which depend only on a `Store`
+**interface** — so the same code runs against either the in-memory or the
+PostgreSQL implementation, chosen at startup.
+
+```mermaid
+flowchart LR
+    client[HTTP client] --> mux[ServeMux router]
+    mux --> mw[logging middleware]
+    mw --> handler[expense.Handler]
+    handler -->|Store interface| iface{{Store}}
+    iface --> mem[MemoryStore]
+    iface --> pg[PostgresStore]
+    pg --> db[(PostgreSQL)]
+```
 
 ## Project layout
 
