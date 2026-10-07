@@ -1,14 +1,28 @@
-# Spins up a local PostgreSQL database for development.
+# Runs the whole stack — the Go API plus its PostgreSQL database.
 #
-#   docker compose up -d        # start Postgres in the background
-#   docker compose down         # stop it (data is kept in the named volume)
-#   docker compose down -v      # stop it AND delete the data
+#   docker compose up --build   # build the app image and start everything
+#   docker compose up -d db     # start ONLY the database (e.g. for `go run .`)
+#   docker compose down         # stop everything (data kept in the named volume)
+#   docker compose down -v      # stop everything AND delete the data
 #
-# Then point the app at it:
-#   export DATABASE_URL="postgres://expense:expense@localhost:5432/expenses?sslmode=disable"
-#   go run .
+# With the full stack up, the API is on http://localhost:8080 and talks to the
+# database over the private compose network (host "db"), so no host port clash.
 
 services:
+  app:
+    build: .
+    container_name: expense-app
+    depends_on:
+      db:
+        condition: service_healthy # wait until Postgres is ready to accept queries
+    environment:
+      # "db" is the service name, resolvable on the compose network. Port 5432 is
+      # the container's internal port, independent of the published DB_PORT.
+      DATABASE_URL: "postgres://expense:expense@db:5432/expenses?sslmode=disable"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
   db:
     image: postgres:17
     container_name: expense-db

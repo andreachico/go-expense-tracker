@@ -6,7 +6,9 @@ A RESTful expense tracker API built with Go, PostgreSQL, and Docker. A learning 
 ```
 go-expense-tracker/
 ├── main.go                     # entry point: picks the store, wires routes, starts the server
-├── docker-compose.yml          # local PostgreSQL for development
+├── Dockerfile                  # multi-stage build -> tiny distroless runtime image
+├── .dockerignore               # keeps the Docker build context small
+├── docker-compose.yml          # runs the full stack: app + PostgreSQL
 ├── db/
 │   └── schema.sql              # expenses table, run on first DB startup
 ├── internal/
@@ -56,6 +58,22 @@ export DATABASE_URL="postgres://expense:expense@localhost:5433/expenses?sslmode=
 When `DATABASE_URL` is set the app uses Postgres; otherwise it falls back to the
 in-memory store. Credentials come from the environment — never hardcoded.
 
+### Full stack in Docker (app + database)
+
+Run everything in containers — no local Go toolchain needed:
+
+```bash
+docker compose up --build
+# expense-db   ... healthy
+# expense-app  connected to PostgreSQL
+# API on http://localhost:8080
+```
+
+The app image is a multi-stage build: a Go image compiles a static binary, which
+is copied into a minimal `distroless` runtime (~20 MB, no shell). Inside the
+compose network the app reaches the database at host `db`, so the published
+`DB_PORT` is only for connecting from your laptop.
+
 ## API
 
 | Method | Path             | Body (JSON)                             | Success |
@@ -98,7 +116,7 @@ curl -X DELETE localhost:8080/expenses/1
 go test ./... -race
 
 # integration tests against a real Postgres
-docker compose up -d
+docker compose up -d db
 export TEST_DATABASE_URL="postgres://expense:expense@localhost:5432/expenses?sslmode=disable"
 go test -tags=integration ./test/integration/...
 ```
@@ -123,9 +141,9 @@ go test -tags=integration ./test/integration/...
 - [x] Database config from environment variables (no hardcoded credentials)
 - [x] Integration tests in `test/integration/` (run with `-tags=integration`)
 
-### Phase 4 — Containerize
-- [ ] Multi-stage `Dockerfile` for a small production image
-- [ ] App + database wired together via `docker compose up`
+### Phase 4 — Containerize ✅
+- [x] Multi-stage `Dockerfile` producing a ~20 MB distroless image
+- [x] App + database wired together via `docker compose up --build`
 
 ### Phase 5 — Production polish
 - [ ] Graceful shutdown (`context` + `http.Server.Shutdown`)
