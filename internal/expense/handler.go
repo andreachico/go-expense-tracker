@@ -2,6 +2,7 @@ package expense
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 )
@@ -33,7 +34,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.store.List())
+	items, err := h.store.List(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +51,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, h.store.Create(e))
+	created, err := h.store.Create(r.Context(), e)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -53,9 +64,9 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	e, err := h.store.Get(id)
+	e, err := h.store.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "expense not found")
+		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, e)
@@ -74,9 +85,9 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	updated, err := h.store.Update(id, e)
+	updated, err := h.store.Update(r.Context(), id, e)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "expense not found")
+		writeStoreError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -87,8 +98,8 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.store.Delete(id); err != nil {
-		writeError(w, http.StatusNotFound, "expense not found")
+	if err := h.store.Delete(r.Context(), id); err != nil {
+		writeStoreError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent) // 204: success with no body.
@@ -129,4 +140,15 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 // writeError returns a consistent JSON error shape: {"error": "..."}.
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+// writeStoreError maps an error from the Store to an HTTP response: a missing
+// record is a 404; anything else (e.g. a database failure) is a 500. We never
+// leak the raw error to the client, which could expose internal details.
+func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "expense not found")
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "internal server error")
 }

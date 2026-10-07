@@ -1,6 +1,7 @@
 package expense
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -9,11 +10,22 @@ import (
 // TestXxx(t *testing.T) are run by `go test`. t.Errorf records a failure but
 // keeps going; t.Fatalf records a failure and stops the current test.
 
+// mustCreate inserts an expense and fails the test if the store returns an
+// error, so each test body stays focused on what it's actually checking.
+func mustCreate(t *testing.T, s Store, e Expense) Expense {
+	t.Helper()
+	created, err := s.Create(context.Background(), e)
+	if err != nil {
+		t.Fatalf("Create returned unexpected error: %v", err)
+	}
+	return created
+}
+
 func TestMemoryStore_CreateAssignsIncrementingIDs(t *testing.T) {
 	s := NewMemoryStore()
 
-	first := s.Create(Expense{Amount: 10, Category: "food"})
-	second := s.Create(Expense{Amount: 20, Category: "transport"})
+	first := mustCreate(t, s, Expense{Amount: 10, Category: "food"})
+	second := mustCreate(t, s, Expense{Amount: 20, Category: "transport"})
 
 	if first.ID != 1 {
 		t.Errorf("first ID = %d, want 1", first.ID)
@@ -25,9 +37,9 @@ func TestMemoryStore_CreateAssignsIncrementingIDs(t *testing.T) {
 
 func TestMemoryStore_GetReturnsStoredExpense(t *testing.T) {
 	s := NewMemoryStore()
-	created := s.Create(Expense{Amount: 10, Category: "food", Description: "lunch"})
+	created := mustCreate(t, s, Expense{Amount: 10, Category: "food", Description: "lunch"})
 
-	got, err := s.Get(created.ID)
+	got, err := s.Get(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("Get returned unexpected error: %v", err)
 	}
@@ -39,7 +51,7 @@ func TestMemoryStore_GetReturnsStoredExpense(t *testing.T) {
 func TestMemoryStore_GetMissingReturnsErrNotFound(t *testing.T) {
 	s := NewMemoryStore()
 
-	_, err := s.Get(999)
+	_, err := s.Get(context.Background(), 999)
 
 	// errors.Is is the right way to compare against a sentinel error; it also
 	// works if the error has been wrapped with fmt.Errorf("...: %w", err).
@@ -50,9 +62,9 @@ func TestMemoryStore_GetMissingReturnsErrNotFound(t *testing.T) {
 
 func TestMemoryStore_UpdateKeepsID(t *testing.T) {
 	s := NewMemoryStore()
-	created := s.Create(Expense{Amount: 10, Category: "food"})
+	created := mustCreate(t, s, Expense{Amount: 10, Category: "food"})
 
-	updated, err := s.Update(created.ID, Expense{ID: 999, Amount: 15, Category: "food"})
+	updated, err := s.Update(context.Background(), created.ID, Expense{ID: 999, Amount: 15, Category: "food"})
 	if err != nil {
 		t.Fatalf("Update returned unexpected error: %v", err)
 	}
@@ -67,7 +79,7 @@ func TestMemoryStore_UpdateKeepsID(t *testing.T) {
 func TestMemoryStore_UpdateMissingReturnsErrNotFound(t *testing.T) {
 	s := NewMemoryStore()
 
-	_, err := s.Update(999, Expense{Amount: 1, Category: "food"})
+	_, err := s.Update(context.Background(), 999, Expense{Amount: 1, Category: "food"})
 
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("Update error = %v, want ErrNotFound", err)
@@ -76,12 +88,12 @@ func TestMemoryStore_UpdateMissingReturnsErrNotFound(t *testing.T) {
 
 func TestMemoryStore_DeleteRemovesExpense(t *testing.T) {
 	s := NewMemoryStore()
-	created := s.Create(Expense{Amount: 10, Category: "food"})
+	created := mustCreate(t, s, Expense{Amount: 10, Category: "food"})
 
-	if err := s.Delete(created.ID); err != nil {
+	if err := s.Delete(context.Background(), created.ID); err != nil {
 		t.Fatalf("Delete returned unexpected error: %v", err)
 	}
-	if _, err := s.Get(created.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := s.Get(context.Background(), created.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("after Delete, Get error = %v, want ErrNotFound", err)
 	}
 }
@@ -89,18 +101,21 @@ func TestMemoryStore_DeleteRemovesExpense(t *testing.T) {
 func TestMemoryStore_DeleteMissingReturnsErrNotFound(t *testing.T) {
 	s := NewMemoryStore()
 
-	if err := s.Delete(999); !errors.Is(err, ErrNotFound) {
+	if err := s.Delete(context.Background(), 999); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Delete error = %v, want ErrNotFound", err)
 	}
 }
 
 func TestMemoryStore_ListIsSortedByID(t *testing.T) {
 	s := NewMemoryStore()
-	s.Create(Expense{Amount: 1, Category: "a"}) // ID 1
-	s.Create(Expense{Amount: 2, Category: "b"}) // ID 2
-	s.Create(Expense{Amount: 3, Category: "c"}) // ID 3
+	mustCreate(t, s, Expense{Amount: 1, Category: "a"}) // ID 1
+	mustCreate(t, s, Expense{Amount: 2, Category: "b"}) // ID 2
+	mustCreate(t, s, Expense{Amount: 3, Category: "c"}) // ID 3
 
-	list := s.List()
+	list, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("List returned unexpected error: %v", err)
+	}
 
 	if len(list) != 3 {
 		t.Fatalf("List len = %d, want 3", len(list))
