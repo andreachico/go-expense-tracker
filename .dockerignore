@@ -1,0 +1,8 @@
+# Keep the Docker build context small and avoid copying files the build doesn't
+# need. A smaller context means faster builds.
+.git
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+README.md
