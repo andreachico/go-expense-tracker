@@ -15,9 +15,9 @@ const emptyForm = {
   date: today(),
 };
 
-const currency = new Intl.NumberFormat(undefined, {
+const currency = new Intl.NumberFormat("en-IE", {
   style: "currency",
-  currency: "USD",
+  currency: "EUR",
 });
 
 // ExpenseDashboard receives the server-rendered initial list and then owns it
@@ -142,40 +142,47 @@ export default function ExpenseDashboard({
           No expenses yet. Add your first one above.
         </p>
       ) : (
-        <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {expenses.map((e) => (
-            <li
-              key={e.id}
-              className="flex items-center justify-between gap-4 bg-white px-4 py-3 dark:bg-zinc-900"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{e.category}</span>
+        <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <div className="flex items-center gap-4 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+            <span className="w-24 shrink-0">Date</span>
+            <span className="flex-1 min-w-0">Description</span>
+            <span className="w-28 shrink-0">Category</span>
+            <span className="w-24 shrink-0 text-right">Amount</span>
+            <span className="w-14 shrink-0" />
+          </div>
+          <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            {expenses.map((e) => (
+              <li
+                key={e.id}
+                className="flex items-center gap-4 bg-white px-4 py-3 text-sm dark:bg-zinc-900"
+              >
+                <span className="w-24 shrink-0 text-zinc-500 tabular-nums">
+                  {e.date}
+                </span>
+                <span className="flex-1 min-w-0 truncate">
+                  {e.description || "—"}
+                </span>
+                <span className="w-28 shrink-0">
                   <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800">
-                    {e.date}
+                    {e.category}
                   </span>
-                </div>
-                {e.description && (
-                  <p className="truncate text-sm text-zinc-500">
-                    {e.description}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="font-semibold tabular-nums">
+                </span>
+                <span className="w-24 shrink-0 text-right font-semibold tabular-nums">
                   {currency.format(e.amount)}
                 </span>
-                <button
-                  onClick={() => handleDelete(e.id)}
-                  aria-label={`Delete ${e.category}`}
-                  className="text-sm text-zinc-400 hover:text-red-600"
-                >
-                  Delete
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+                <span className="w-14 shrink-0 text-right">
+                  <button
+                    onClick={() => handleDelete(e.id)}
+                    aria-label={`Delete ${e.category}`}
+                    className="text-zinc-400 hover:text-red-600"
+                  >
+                    Delete
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </main>
   );
