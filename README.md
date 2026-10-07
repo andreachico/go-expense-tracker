@@ -61,7 +61,28 @@ curl -X DELETE localhost:8080/expenses/1
 
 ## Roadmap
 
+### Phase 1 — Core API ✅
 - [x] In-memory CRUD API
-- [ ] Unit tests (handlers with a fake Store, store behaviour)
-- [ ] PostgreSQL-backed `Store` implementation
-- [ ] Docker + docker-compose for app + database
+- [x] `Store` interface so storage can be swapped without touching handlers
+- [x] Input validation + consistent JSON error responses
+
+### Phase 2 — Testing ✅
+- [x] Unit tests for the store (CRUD, `ErrNotFound`, sorted list, validation)
+- [x] HTTP handler tests with `httptest` + interface-based stubbing
+- [x] Passes `go vet` and `go test -race` (~90% coverage)
+
+### Phase 3 — PostgreSQL storage
+- [ ] `docker-compose.yml` with a Postgres service for local development
+- [ ] SQL schema/migration for the `expenses` table
+- [ ] `PostgresStore` implementing the `Store` interface (`pgx` driver)
+- [ ] Database config from environment variables (no hardcoded credentials)
+- [ ] Integration tests in `test/` that run against a real Postgres
+
+### Phase 4 — Containerize
+- [ ] Multi-stage `Dockerfile` for a small production image
+- [ ] App + database wired together via `docker compose up`
+
+### Phase 5 — Production polish
+- [ ] Graceful shutdown (`context` + `http.Server.Shutdown`)
+- [ ] Structured logging + request logging middleware
+- [ ] CI with GitHub Actions (`go vet`, `go test -race`)
