@@ -1,6 +1,7 @@
 package expense
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -145,7 +146,7 @@ type stubStore struct {
 	err   error
 }
 
-func (s stubStore) Get(id int) (Expense, error) { return Expense{}, s.err }
+func (s stubStore) Get(_ context.Context, id int) (Expense, error) { return Expense{}, s.err }
 
 func TestGet_UsesStoreError(t *testing.T) {
 	mux := http.NewServeMux()

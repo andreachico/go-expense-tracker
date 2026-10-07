@@ -5,24 +5,56 @@ A RESTful expense tracker API built with Go, PostgreSQL, and Docker. A learning 
 
 ```
 go-expense-tracker/
-├── main.go                     # entry point: wires everything together, starts the server
-└── internal/
-    └── expense/
-        ├── expense.go          # the Expense model + validation rules
-        ├── store.go            # Store interface + thread-safe in-memory implementation
-        └── handler.go          # HTTP handlers (request -> Store call -> JSON response)
+├── main.go                     # entry point: picks the store, wires routes, starts the server
+├── docker-compose.yml          # local PostgreSQL for development
+├── db/
+│   └── schema.sql              # expenses table, run on first DB startup
+├── internal/
+│   └── expense/
+│       ├── expense.go          # the Expense model + validation rules
+│       ├── store.go            # Store interface + in-memory implementation
+│       ├── postgres.go         # PostgreSQL implementation of Store (pgx)
+│       └── handler.go          # HTTP handlers (request -> Store call -> JSON response)
+└── test/
+    └── integration/            # DB-backed tests (run with -tags=integration)
 ```
 
 The handlers depend on the `Store` **interface**, not on a concrete database.
-That is the seam that lets us later add a `PostgresStore` without touching the
-HTTP code.
+`MemoryStore` and `PostgresStore` both satisfy it, so the HTTP code is identical
+no matter which backend is active.
 
 ## Run it
 
+### In-memory (zero setup)
+
 ```bash
 go run .
+# DATABASE_URL not set — using in-memory store
 # server running on http://localhost:8080
 ```
+
+### With PostgreSQL
+
+```bash
+# 1. Start the database (requires Docker)
+docker compose up -d
+
+# 2. Point the app at it and run
+export DATABASE_URL="postgres://expense:expense@localhost:5432/expenses?sslmode=disable"
+go run .
+# connected to PostgreSQL
+```
+
+If port 5432 is already in use by another local Postgres, pick a different host
+port and match it in the URL:
+
+```bash
+DB_PORT=5433 docker compose up -d
+export DATABASE_URL="postgres://expense:expense@localhost:5433/expenses?sslmode=disable"
+```
+
+When `DATABASE_URL` is set the app uses Postgres; otherwise it falls back to the
+in-memory store. Credentials come from the environment — never hardcoded.
 
 ## API
 
@@ -59,6 +91,18 @@ curl -X PUT localhost:8080/expenses/1 \
 curl -X DELETE localhost:8080/expenses/1
 ```
 
+## Tests
+
+```bash
+# fast unit tests (no database needed)
+go test ./... -race
+
+# integration tests against a real Postgres
+docker compose up -d
+export TEST_DATABASE_URL="postgres://expense:expense@localhost:5432/expenses?sslmode=disable"
+go test -tags=integration ./test/integration/...
+```
+
 ## Roadmap
 
 ### Phase 1 — Core API ✅
@@ -71,12 +115,13 @@ curl -X DELETE localhost:8080/expenses/1
 - [x] HTTP handler tests with `httptest` + interface-based stubbing
 - [x] Passes `go vet` and `go test -race` (~90% coverage)
 
-### Phase 3 — PostgreSQL storage
-- [ ] `docker-compose.yml` with a Postgres service for local development
-- [ ] SQL schema/migration for the `expenses` table
-- [ ] `PostgresStore` implementing the `Store` interface (`pgx` driver)
-- [ ] Database config from environment variables (no hardcoded credentials)
-- [ ] Integration tests in `test/` that run against a real Postgres
+### Phase 3 — PostgreSQL storage ✅
+- [x] `docker-compose.yml` with a Postgres service for local development
+- [x] SQL schema for the `expenses` table (`db/schema.sql`)
+- [x] `PostgresStore` implementing the `Store` interface (`pgx` driver)
+- [x] `Store` interface evolved to take `context.Context` and return errors
+- [x] Database config from environment variables (no hardcoded credentials)
+- [x] Integration tests in `test/integration/` (run with `-tags=integration`)
 
 ### Phase 4 — Containerize
 - [ ] Multi-stage `Dockerfile` for a small production image

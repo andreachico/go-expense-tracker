@@ -1,6 +1,7 @@
 package expense
 
 import (
+	"context"
 	"sort"
 	"sync"
 )
@@ -8,15 +9,19 @@ import (
 // Store describes the storage operations the rest of the app needs.
 //
 // This is the most important design choice in the project. The HTTP handlers
-// depend on this INTERFACE, not on any concrete database. When you later add
-// PostgreSQL, you write a PostgresStore with these same five methods and plug
-// it in — the handlers never change. This is "dependency inversion".
+// depend on this INTERFACE, not on any concrete database. The in-memory and
+// PostgreSQL implementations both satisfy it, so the handlers never change.
+//
+// Every method takes a context.Context and can return an error. The in-memory
+// store never really fails, but a database can (dropped connection, timeout,
+// cancelled request), so the interface must allow for it. context lets a
+// caller cancel a slow query — e.g. when the HTTP client disconnects.
 type Store interface {
-	List() []Expense
-	Get(id int) (Expense, error)
-	Create(e Expense) Expense
-	Update(id int, e Expense) (Expense, error)
-	Delete(id int) error
+	List(ctx context.Context) ([]Expense, error)
+	Get(ctx context.Context, id int) (Expense, error)
+	Create(ctx context.Context, e Expense) (Expense, error)
+	Update(ctx context.Context, id int, e Expense) (Expense, error)
+	Delete(ctx context.Context, id int) error
 }
 
 // MemoryStore is an in-memory implementation of Store. It keeps everything in
@@ -41,9 +46,13 @@ func NewMemoryStore() *MemoryStore {
 	}
 }
 
+// The ctx parameter is unused by the in-memory store (there's no slow I/O to
+// cancel), but it's part of the Store interface so every implementation shares
+// the same signature. The blank-looking `_ context.Context` documents that.
+
 // List returns all expenses sorted by ID so the output is stable (map iteration
 // order in Go is deliberately random).
-func (s *MemoryStore) List() []Expense {
+func (s *MemoryStore) List(_ context.Context) ([]Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock() // defer runs this when the function returns, even on panic.
 
@@ -52,12 +61,12 @@ func (s *MemoryStore) List() []Expense {
 		list = append(list, e)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
-	return list
+	return list, nil
 }
 
 // Get returns one expense, or ErrNotFound if the ID is unknown.
 // The comma-ok form `v, ok := m[key]` is how you test map membership in Go.
-func (s *MemoryStore) Get(id int) (Expense, error) {
+func (s *MemoryStore) Get(_ context.Context, id int) (Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -69,18 +78,18 @@ func (s *MemoryStore) Get(id int) (Expense, error) {
 }
 
 // Create assigns the next ID, stores the expense, and returns the stored copy.
-func (s *MemoryStore) Create(e Expense) Expense {
+func (s *MemoryStore) Create(_ context.Context, e Expense) (Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	e.ID = s.nextID
 	s.nextID++
 	s.items[e.ID] = e
-	return e
+	return e, nil
 }
 
 // Update replaces an existing expense, keeping its original ID.
-func (s *MemoryStore) Update(id int, e Expense) (Expense, error) {
+func (s *MemoryStore) Update(_ context.Context, id int, e Expense) (Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -93,7 +102,7 @@ func (s *MemoryStore) Update(id int, e Expense) (Expense, error) {
 }
 
 // Delete removes an expense by ID.
-func (s *MemoryStore) Delete(id int) error {
+func (s *MemoryStore) Delete(_ context.Context, id int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
