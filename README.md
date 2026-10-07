@@ -17,8 +17,12 @@ go-expense-tracker/
 │       ├── store.go            # Store interface + in-memory implementation
 │       ├── postgres.go         # PostgreSQL implementation of Store (pgx)
 │       └── handler.go          # HTTP handlers (request -> Store call -> JSON response)
-└── test/
-    └── integration/            # DB-backed tests (run with -tags=integration)
+├── test/
+│   └── integration/            # DB-backed tests (run with -tags=integration)
+└── web/                        # Next.js frontend (App Router, TypeScript, Tailwind)
+    └── src/
+        ├── app/                # pages + UI (server + client components)
+        └── lib/                # typed API client and server-side data loader
 ```
 
 The handlers depend on the `Store` **interface**, not on a concrete database.
@@ -57,6 +61,25 @@ export DATABASE_URL="postgres://expense:expense@localhost:5433/expenses?sslmode=
 
 When `DATABASE_URL` is set the app uses Postgres; otherwise it falls back to the
 in-memory store. Credentials come from the environment — never hardcoded.
+
+### Frontend (Next.js)
+
+A small dashboard UI lives in `web/`. Run it alongside the API:
+
+```bash
+# terminal 1 — the Go API (in-memory or Postgres, your choice)
+go run .
+
+# terminal 2 — the frontend
+cd web
+npm install   # first time only
+npm run dev
+```
+
+Open http://localhost:3000. The browser calls same-origin `/api/*`, which
+Next.js proxies to the Go API on `:8080` (configured in `web/next.config.ts`),
+so there's no CORS setup. Initial data is server-rendered; adding and deleting
+expenses happens client-side.
 
 ### Full stack in Docker (app + database)
 
