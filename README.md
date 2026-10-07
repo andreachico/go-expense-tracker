@@ -3,9 +3,14 @@
 [![CI](https://github.com/andreachico/go-expense-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/andreachico/go-expense-tracker/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 
-A RESTful expense tracker API built with Go, PostgreSQL, and Docker. A learning project focused on Go backend development, REST APIs, database integration, testing, and clean project structure.
+A full-stack expense tracker: a RESTful **Go + PostgreSQL** API paired with a
+**Next.js + TypeScript** dashboard, all runnable in Docker. A learning project
+focused on Go backend development, REST APIs, database integration, testing,
+clean project structure, and a modern React frontend.
 
 ## Architecture
 
@@ -15,6 +20,7 @@ PostgreSQL implementation, chosen at startup.
 
 ```mermaid
 flowchart LR
+    browser[Next.js dashboard] -->|/api proxy| mux
     client[HTTP client] --> mux[ServeMux router]
     mux --> mw[logging middleware]
     mw --> handler[expense.Handler]
@@ -84,6 +90,10 @@ export DATABASE_URL="postgres://expense:expense@localhost:5433/expenses?sslmode=
 
 When `DATABASE_URL` is set the app uses Postgres; otherwise it falls back to the
 in-memory store. Credentials come from the environment — never hardcoded.
+
+> Tip: copy `.env.example` to `.env` and the backend loads it automatically on
+> startup (via `godotenv`), so `go run .` picks up `DATABASE_URL` without any
+> manual `export`. Real environment variables still take precedence.
 
 ### Frontend (Next.js)
 
@@ -167,31 +177,24 @@ export TEST_DATABASE_URL="postgres://expense:expense@localhost:5432/expenses?ssl
 go test -tags=integration ./test/integration/...
 ```
 
-## Roadmap
+## Features
 
-### Phase 1 — Core API ✅
-- [x] In-memory CRUD API
-- [x] `Store` interface so storage can be swapped without touching handlers
-- [x] Input validation + consistent JSON error responses
+- RESTful CRUD API for expenses with input validation and consistent JSON errors
+- `Store` interface so storage can be swapped without touching the handlers
+- In-memory and PostgreSQL (`pgx`) storage backends, selected at startup
+- `context.Context`-aware store methods and environment-based DB config (no hardcoded credentials)
+- Unit tests (`httptest`, interface stubs) and integration tests (`-tags=integration`), `go vet` + `go test -race` clean
+- Multi-stage `Dockerfile` (~20 MB distroless image) and full stack via `docker compose up --build`
+- Graceful shutdown (SIGINT/SIGTERM), request logging middleware, and GitHub Actions CI
+- Frontend development: Next.js (App Router) + TypeScript dashboard in `web/`
+- Tailwind CSS UI with add/delete, running total, and a tabular expense layout
+- Server-rendered initial list; add/delete handled client-side via a typed, reusable API client
+- Same-origin `/api/*` proxy to the Go backend (no CORS) and `.env` auto-loading via `godotenv`
 
-### Phase 2 — Testing ✅
-- [x] Unit tests for the store (CRUD, `ErrNotFound`, sorted list, validation)
-- [x] HTTP handler tests with `httptest` + interface-based stubbing
-- [x] Passes `go vet` and `go test -race` (~90% coverage)
-
-### Phase 3 — PostgreSQL storage ✅
-- [x] `docker-compose.yml` with a Postgres service for local development
-- [x] SQL schema for the `expenses` table (`db/schema.sql`)
-- [x] `PostgresStore` implementing the `Store` interface (`pgx` driver)
-- [x] `Store` interface evolved to take `context.Context` and return errors
-- [x] Database config from environment variables (no hardcoded credentials)
-- [x] Integration tests in `test/integration/` (run with `-tags=integration`)
-
-### Phase 4 — Containerize ✅
-- [x] Multi-stage `Dockerfile` producing a ~20 MB distroless image
-- [x] App + database wired together via `docker compose up --build`
-
-### Phase 5 — Production polish ✅
-- [x] Graceful shutdown on SIGINT/SIGTERM (`http.Server.Shutdown`)
-- [x] Request logging middleware (method, path, status, duration)
-- [x] CI with GitHub Actions (`go vet`, `go test -race`)
+### Next up 🚧
+- [ ] Edit expenses from the UI (wire up the existing `PUT` endpoint)
+- [ ] Filtering and sorting by category, date range, and amount
+- [ ] Pagination for large expense lists (API + UI)
+- [ ] Containerize the frontend and add it to `docker compose`
+- [ ] End-to-end tests for the frontend (Playwright)
+- [ ] Authentication so expenses are scoped per user
