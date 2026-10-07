@@ -11,12 +11,20 @@ import (
 	"time"
 
 	"github.com/andreachico/go-expense-tracker/internal/expense"
+	"github.com/joho/godotenv"
 )
 
 // main is the application's entry point. Its only job is "composition": create
 // the pieces, wire them together, and start the server. Keeping main.go thin
 // makes the real logic (in the expense package) easy to test on its own.
 func main() {
+	// Load a local .env file if present so `go run .` picks up DATABASE_URL
+	// without manual exporting. Real environment variables always win, and a
+	// missing file is not an error (production sets real env vars instead).
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		log.Printf("could not load .env file: %v", err)
+	}
+
 	// A ServeMux is Go's HTTP request router: it matches incoming method+path
 	// combinations to the right handler function.
 	mux := http.NewServeMux()
