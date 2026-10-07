@@ -1,0 +1,24 @@
+name: CI
+
+# Run on every push to main and on every pull request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Read the Go version from go.mod so CI always matches the project.
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race detector)
+        run: go test ./... -race

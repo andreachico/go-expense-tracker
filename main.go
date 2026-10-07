@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/andreachico/go-expense-tracker/internal/expense"
 )
@@ -25,14 +29,68 @@ func main() {
 	store := newStore()
 	expense.NewHandler(store).Register(mux)
 
-	const addr = ":8080"
-	log.Printf("server running on http://localhost%s", addr)
-
-	// ListenAndServe blocks until the server stops. It only returns on error,
-	// and log.Fatal prints that error and exits with a non-zero status code.
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatal(err)
+	// If the store owns resources (the Postgres pool), close them on exit. The
+	// interface assertion skips stores that have no Close method (MemoryStore).
+	if closer, ok := store.(interface{ Close() }); ok {
+		defer closer.Close()
 	}
+
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: logging(mux), // wrap every request with the logging middleware.
+		// A small header-read timeout protects against slow-loris style clients.
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	// Run the server in its own goroutine so main can wait for a shutdown signal.
+	go func() {
+		log.Printf("server running on http://localhost%s", srv.Addr)
+		// ListenAndServe returns ErrServerClosed after a graceful Shutdown; that
+		// is expected, so we only treat other errors as fatal.
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	// Block until the process receives Ctrl-C (SIGINT) or a SIGTERM (what Docker
+	// sends on `docker stop`). signal.NotifyContext cancels ctx on either.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+
+	log.Println("shutting down...")
+
+	// Give in-flight requests up to 10 seconds to finish before forcing exit.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
+	}
+	log.Println("server stopped")
+}
+
+// logging is HTTP middleware: it wraps a handler and records the method, path,
+// response status, and how long the request took. Middleware is just a function
+// that takes a handler and returns a new handler with extra behaviour around it.
+func logging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.status, time.Since(start))
+	})
+}
+
+// statusRecorder wraps http.ResponseWriter so the middleware can see which
+// status code the handler wrote (the ResponseWriter interface doesn't expose it).
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
 }
 
 // newStore returns a PostgreSQL-backed store when DATABASE_URL is configured,
