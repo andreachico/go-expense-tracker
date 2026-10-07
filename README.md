@@ -145,7 +145,7 @@ go test -tags=integration ./test/integration/...
 - [x] Multi-stage `Dockerfile` producing a ~20 MB distroless image
 - [x] App + database wired together via `docker compose up --build`
 
-### Phase 5 — Production polish
-- [ ] Graceful shutdown (`context` + `http.Server.Shutdown`)
-- [ ] Structured logging + request logging middleware
-- [ ] CI with GitHub Actions (`go vet`, `go test -race`)
+### Phase 5 — Production polish ✅
+- [x] Graceful shutdown on SIGINT/SIGTERM (`http.Server.Shutdown`)
+- [x] Request logging middleware (method, path, status, duration)
+- [x] CI with GitHub Actions (`go vet`, `go test -race`)
