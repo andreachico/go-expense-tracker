@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Expense } from "@/lib/types";
 import { createExpense, deleteExpense } from "@/lib/api";
+import SpendingCharts from "./spending-charts";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -252,7 +253,8 @@ export default function ExpenseDashboard({
     : visibleExpenses;
 
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-10">
+    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-10 lg:flex-row">
+      <div className="min-w-0 flex-1">
       <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">
           Expense Tracker
@@ -310,6 +312,7 @@ export default function ExpenseDashboard({
                 <th className="px-3 py-2 text-left">Category</th>
                 <th className="px-3 py-2 text-right">Soll</th>
                 <th className="px-3 py-2 text-right">Ist</th>
+                <th className="px-3 py-2 text-right">Remaining</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-amber-900/10">
@@ -317,6 +320,7 @@ export default function ExpenseDashboard({
                 const ist = istForCategory(cat);
                 const soll = Number(monthBudgets[cat] ?? "");
                 const over = soll > 0 && ist > soll;
+                const remaining = soll - ist;
                 return (
                   <tr key={cat}>
                     <td className="px-3 py-2">
@@ -342,6 +346,13 @@ export default function ExpenseDashboard({
                       }`}
                     >
                       {currency.format(ist)}
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                        remaining < 0 ? "text-red-700" : "text-amber-900"
+                      }`}
+                    >
+                      {currency.format(remaining)}
                     </td>
                   </tr>
                 );
@@ -521,6 +532,11 @@ export default function ExpenseDashboard({
             </span>
           </span>
         </div>
+      </div>
+      </div>
+
+      <div className="w-full shrink-0 lg:w-[380px]">
+        <SpendingCharts expenses={expenses} />
       </div>
     </main>
   );
