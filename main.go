@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/andreachico/go-expense-tracker/internal/budget"
 	"github.com/andreachico/go-expense-tracker/internal/expense"
 	"github.com/joho/godotenv"
 )
@@ -40,6 +41,13 @@ func main() {
 	// If the store owns resources (the Postgres pool), close them on exit. The
 	// interface assertion skips stores that have no Close method (MemoryStore).
 	if closer, ok := store.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+
+	// The budget sheet has its own store and routes, chosen the same way.
+	budgetStore := newBudgetStore()
+	budget.NewHandler(budgetStore).Register(mux)
+	if closer, ok := budgetStore.(interface{ Close() }); ok {
 		defer closer.Close()
 	}
 
@@ -116,6 +124,22 @@ func newStore() expense.Store {
 		log.Fatalf("could not connect to database: %v", err)
 	}
 	log.Println("connected to PostgreSQL")
+	return store
+}
+
+// newBudgetStore mirrors newStore for the budget plan: PostgreSQL when
+// DATABASE_URL is set, in-memory otherwise.
+func newBudgetStore() budget.Store {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Println("DATABASE_URL not set — using in-memory budget store")
+		return budget.NewMemoryStore()
+	}
+
+	store, err := budget.NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("could not connect to database: %v", err)
+	}
 	return store
 }
 
