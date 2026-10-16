@@ -1,4 +1,4 @@
-import type { Expense, NewExpense, User } from "./types";
+import type { Debt, Expense, NewDebt, NewExpense, User } from "./types";
 
 // Browser-side mutations. These hit the same-origin "/api" path, which
 // next.config.ts proxies to the Go backend (so no CORS). Initial listing is
@@ -66,4 +66,55 @@ export async function login(username: string, password: string): Promise<User> {
 export async function logout(): Promise<void> {
   const res = await fetch("/api/auth/logout", { method: "POST" });
   if (!res.ok) throw new Error(`logout failed (${res.status})`);
+}
+
+// --- Debts ---
+//
+// One-time payments and installment plans (Ratenzahlungen). Loaded client-side
+// so the debts page refetches as rows are added, edited, or paid off.
+
+export async function getDebts(): Promise<Debt[]> {
+  return handle<Debt[]>(await fetch("/api/debts", { cache: "no-store" }));
+}
+
+export async function getDebt(id: number): Promise<Debt> {
+  return handle<Debt>(await fetch(`/api/debts/${id}`, { cache: "no-store" }));
+}
+
+export async function createDebt(input: NewDebt): Promise<Debt> {
+  return handle<Debt>(
+    await fetch("/api/debts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function updateDebt(id: number, input: NewDebt): Promise<Debt> {
+  return handle<Debt>(
+    await fetch(`/api/debts/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function updateDebtPaid(
+  id: number,
+  paidMonths: number,
+): Promise<Debt> {
+  return handle<Debt>(
+    await fetch(`/api/debts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paidMonths }),
+    }),
+  );
+}
+
+export async function deleteDebt(id: number): Promise<void> {
+  const res = await fetch(`/api/debts/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`delete failed (${res.status})`);
 }
