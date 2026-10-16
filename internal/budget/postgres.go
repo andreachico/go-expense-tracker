@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/andreachico/go-expense-tracker/internal/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -29,11 +30,11 @@ func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, e
 // Close releases every connection in the pool. Call it on shutdown.
 func (s *PostgresStore) Close() { s.pool.Close() }
 
-// Get loads a month's entries into a Plan map.
+// Get loads a month's entries into a Plan map, scoped to the caller.
 func (s *PostgresStore) Get(ctx context.Context, month string) (Plan, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT entry_key, type, category, amount, due FROM budget_amounts WHERE month = $1`,
-		month)
+		`SELECT entry_key, type, category, amount, due FROM budget_amounts WHERE user_id = $1 AND month = $2`,
+		auth.UserID(ctx), month)
 	if err != nil {
 		return nil, fmt.Errorf("querying budget: %w", err)
 	}
@@ -53,23 +54,25 @@ func (s *PostgresStore) Get(ctx context.Context, month string) (Plan, error) {
 	return plan, rows.Err()
 }
 
-// Save replaces a month's plan inside a transaction: clear that month's rows,
-// then insert the new entries. Wrapping both steps in a transaction means a
-// failure leaves the previous plan intact rather than a half-written one.
+// Save replaces a month's plan inside a transaction: clear that month's rows for
+// this user, then insert the new entries. Wrapping both steps in a transaction
+// means a failure leaves the previous plan intact rather than a half-written one.
 func (s *PostgresStore) Save(ctx context.Context, month string, plan Plan) error {
+	userID := auth.UserID(ctx)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback(ctx) // no-op once the transaction is committed.
 
-	if _, err := tx.Exec(ctx, `DELETE FROM budget_amounts WHERE month = $1`, month); err != nil {
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM budget_amounts WHERE user_id = $1 AND month = $2`, userID, month); err != nil {
 		return fmt.Errorf("clearing budget: %w", err)
 	}
 	for key, entry := range plan {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO budget_amounts (month, entry_key, type, category, amount, due) VALUES ($1, $2, $3, $4, $5, $6)`,
-			month, key, entry.Type, entry.Category, entry.Amount, entry.Due); err != nil {
+			`INSERT INTO budget_amounts (user_id, month, entry_key, type, category, amount, due) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			userID, month, key, entry.Type, entry.Category, entry.Amount, entry.Due); err != nil {
 			return fmt.Errorf("inserting budget entry: %w", err)
 		}
 	}

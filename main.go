@@ -16,6 +16,9 @@ import (
 	"github.com/andreachico/go-expense-tracker/internal/budget"
 	"github.com/andreachico/go-expense-tracker/internal/debt"
 	"github.com/andreachico/go-expense-tracker/internal/expense"
+	"github.com/andreachico/go-expense-tracker/internal/income"
+	"github.com/andreachico/go-expense-tracker/internal/investment"
+	"github.com/andreachico/go-expense-tracker/internal/savings"
 	"github.com/joho/godotenv"
 )
 
@@ -71,8 +74,26 @@ func main() {
 		defer closer.Close()
 	}
 
-	// Debts (one-time payments and installment plans) follow the same per-user
-	// pattern.
+	// Income (salary, side-jobs, etc.) has its own store and routes too.
+	incomeStore := newIncomeStore()
+	income.NewHandler(incomeStore).Register(protected)
+	if closer, ok := incomeStore.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+
+	// Savings, investments, and debts each follow the same per-user pattern.
+	savingsStore := newSavingsStore()
+	savings.NewHandler(savingsStore).Register(protected)
+	if closer, ok := savingsStore.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+
+	investmentStore := newInvestmentStore()
+	investment.NewHandler(investmentStore).Register(protected)
+	if closer, ok := investmentStore.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+
 	debtStore := newDebtStore()
 	debt.NewHandler(debtStore).Register(protected)
 	if closer, ok := debtStore.(interface{ Close() }); ok {
@@ -169,6 +190,54 @@ func newBudgetStore() budget.Store {
 	}
 
 	store, err := budget.NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("could not connect to database: %v", err)
+	}
+	return store
+}
+
+// newIncomeStore mirrors newStore for income: PostgreSQL when DATABASE_URL is
+// set, in-memory otherwise.
+func newIncomeStore() income.Store {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Println("DATABASE_URL not set — using in-memory income store")
+		return income.NewMemoryStore()
+	}
+
+	store, err := income.NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("could not connect to database: %v", err)
+	}
+	return store
+}
+
+// newSavingsStore mirrors newStore for savings: PostgreSQL when DATABASE_URL is
+// set, in-memory otherwise.
+func newSavingsStore() savings.Store {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Println("DATABASE_URL not set — using in-memory savings store")
+		return savings.NewMemoryStore()
+	}
+
+	store, err := savings.NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("could not connect to database: %v", err)
+	}
+	return store
+}
+
+// newInvestmentStore mirrors newStore for investments: PostgreSQL when
+// DATABASE_URL is set, in-memory otherwise.
+func newInvestmentStore() investment.Store {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Println("DATABASE_URL not set — using in-memory investment store")
+		return investment.NewMemoryStore()
+	}
+
+	store, err := investment.NewPostgresStore(context.Background(), dsn)
 	if err != nil {
 		log.Fatalf("could not connect to database: %v", err)
 	}

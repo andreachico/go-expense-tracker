@@ -2,7 +2,10 @@ package budget
 
 import (
 	"context"
+	"fmt"
 	"sync"
+
+	"github.com/andreachico/go-expense-tracker/internal/auth"
 )
 
 // Store persists one budget plan per month (keyed "YYYY-MM"). Like
@@ -14,10 +17,11 @@ type Store interface {
 }
 
 // MemoryStore keeps the plans in memory; data is lost when the program stops.
-// A mutex guards the map because the server serves requests concurrently.
+// Plans are keyed by the owning user and month so accounts stay separate. A
+// mutex guards the map because the server serves requests concurrently.
 type MemoryStore struct {
 	mu    sync.Mutex
-	plans map[string]Plan // keyed by month "YYYY-MM"
+	plans map[string]Plan // keyed by "userID:YYYY-MM"
 }
 
 // NewMemoryStore returns an empty, ready-to-use in-memory store.
@@ -25,13 +29,19 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{plans: map[string]Plan{}}
 }
 
+// key scopes a month to the user on the context so one account never reads
+// another's budget.
+func key(ctx context.Context, month string) string {
+	return fmt.Sprintf("%d:%s", auth.UserID(ctx), month)
+}
+
 // Get returns a copy of the given month's plan so callers can't mutate the
 // internal map without going through Save.
-func (s *MemoryStore) Get(_ context.Context, month string) (Plan, error) {
+func (s *MemoryStore) Get(ctx context.Context, month string) (Plan, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	src := s.plans[month]
+	src := s.plans[key(ctx, month)]
 	out := make(Plan, len(src))
 	for k, v := range src {
 		out[k] = v
@@ -40,7 +50,7 @@ func (s *MemoryStore) Get(_ context.Context, month string) (Plan, error) {
 }
 
 // Save replaces the given month's plan with a copy of the provided map.
-func (s *MemoryStore) Save(_ context.Context, month string, plan Plan) error {
+func (s *MemoryStore) Save(ctx context.Context, month string, plan Plan) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -48,6 +58,6 @@ func (s *MemoryStore) Save(_ context.Context, month string, plan Plan) error {
 	for k, v := range plan {
 		cp[k] = v
 	}
-	s.plans[month] = cp
+	s.plans[key(ctx, month)] = cp
 	return nil
 }
