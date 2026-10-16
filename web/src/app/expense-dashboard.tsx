@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Expense } from "@/lib/types";
 import { createExpense, deleteExpense } from "@/lib/api";
 import SpendingCharts from "./spending-charts";
@@ -35,6 +35,19 @@ const CATEGORIES = [
   "Freizeit",
   "Online Bestellung",
 ];
+
+// Each category gets its own pastel badge color. Full class strings are used so
+// Tailwind's compiler can detect them.
+const CATEGORY_COLORS: Record<string, string> = {
+  Groceries: "bg-emerald-100 text-emerald-800",
+  Drogerie: "bg-sky-100 text-sky-800",
+  "Restaurant/Food Order": "bg-rose-100 text-rose-800",
+  Freizeit: "bg-violet-100 text-violet-800",
+  "Online Bestellung": "bg-amber-100 text-amber-800",
+};
+
+const categoryColor = (category: string) =>
+  CATEGORY_COLORS[category] ?? "bg-zinc-100 text-zinc-700";
 
 // The form holds strings because <input> values are strings; we convert amount
 // to a number when submitting.
@@ -160,18 +173,42 @@ export default function ExpenseDashboard({
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   // Budget targets ("soll") keyed by month then category, e.g.
-  // budgets["2026-01"]["Groceries"].
+  // budgets["2026-01"]["Groceries"]. Persisted to localStorage so entries
+  // survive a hard refresh.
+  const BUDGETS_STORAGE_KEY = "expense-tracker:budgets";
   const [budgets, setBudgets] = useState<
     Record<string, Record<string, string>>
   >({});
+  // Becomes true only after persisted budgets have been loaded. Using state (not
+  // a ref) keeps this flag consistent with `budgets` within each render, so the
+  // save effect never writes the empty initial state over stored values.
+  const [budgetsLoaded, setBudgetsLoaded] = useState(false);
 
-  // Offer every year present in the data plus the current year.
-  const years = Array.from(
-    new Set([
-      now.getFullYear(),
-      ...expenses.map((e) => Number(e.date.slice(0, 4))),
-    ]),
-  ).sort((a, b) => b - a);
+  // Load persisted budgets once on the client, after mount. Starting from {} on
+  // both server and client keeps the initial render identical (no hydration
+  // mismatch); the stored values are applied immediately afterward.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(BUDGETS_STORAGE_KEY);
+      if (stored) setBudgets(JSON.parse(stored));
+    } catch {
+      // Ignore malformed/unavailable storage.
+    }
+    setBudgetsLoaded(true);
+  }, []);
+
+  // Save budgets whenever they change so the values persist across refreshes.
+  useEffect(() => {
+    if (!budgetsLoaded) return;
+    try {
+      window.localStorage.setItem(
+        BUDGETS_STORAGE_KEY,
+        JSON.stringify(budgets),
+      );
+    } catch {
+      // Ignore storage errors (e.g. private mode / quota).
+    }
+  }, [budgets, budgetsLoaded]);
 
   // Changing the month/year both filters the list and sets the date new
   // expenses are saved under.
@@ -179,6 +216,13 @@ export default function ExpenseDashboard({
     setSelectedMonth(month);
     setSelectedYear(year);
     setForm((prev) => ({ ...prev, date: `${monthKey(year, month)}-01` }));
+  }
+
+  // Step the selected period forward/backward by whole months, rolling the year
+  // over at the boundaries.
+  function shiftPeriod(delta: number) {
+    const d = new Date(selectedYear, selectedMonth + delta, 1);
+    selectPeriod(d.getMonth(), d.getFullYear());
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -255,11 +299,81 @@ export default function ExpenseDashboard({
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-10 lg:flex-row">
       <div className="min-w-0 flex-1">
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Expense Tracker
-        </h1>
-        <p className="text-sm text-amber-900/70">Go API · PostgreSQL · Next.js</p>
+      <header className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-amber-800 to-amber-600 text-amber-50 shadow-md shadow-amber-900/20">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-6 w-6"
+            >
+              <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2Z" />
+              <path d="M3 7a2 2 0 0 1 2-2h11" />
+              <circle cx="16" cy="13" r="1.25" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              FinTracker
+            </h1>
+            <p className="text-sm text-amber-900/70">
+              Go API · PostgreSQL · Next.js
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Month picker, matching the budget sheet's prev/next control. */}
+          <div className="flex items-center gap-1 rounded-xl border border-amber-900/20 bg-white px-2 py-1.5 shadow-sm">
+            <button
+              type="button"
+              onClick={() => shiftPeriod(-1)}
+              aria-label="Previous month"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+            >
+              <svg
+                width={18}
+                height={18}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <span className="min-w-32 text-center text-sm font-semibold text-zinc-900">
+              {MONTHS[selectedMonth]} {selectedYear}
+            </span>
+            <button
+              type="button"
+              onClick={() => shiftPeriod(1)}
+              aria-label="Next month"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+            >
+              <svg
+                width={18}
+                height={18}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </header>
 
       <section className="mb-8">
@@ -368,32 +482,6 @@ export default function ExpenseDashboard({
         </div>
       )}
 
-      <div className="mb-4 flex items-center gap-3">
-        <label className="text-sm font-medium text-amber-900/80">Month</label>
-        <select
-          value={selectedMonth}
-          onChange={(e) => selectPeriod(Number(e.target.value), selectedYear)}
-          className="rounded-md border border-amber-800/40 bg-white px-3 py-2 text-sm text-zinc-900"
-        >
-          {MONTHS.map((name, i) => (
-            <option key={name} value={i}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={selectedYear}
-          onChange={(e) => selectPeriod(selectedMonth, Number(e.target.value))}
-          className="rounded-md border border-amber-800/40 bg-white px-3 py-2 text-sm text-zinc-900"
-        >
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <div className="overflow-hidden rounded-xl border border-amber-900/20 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-900/10 px-5 py-4">
           <div className="flex items-center gap-2">
@@ -442,7 +530,11 @@ export default function ExpenseDashboard({
                 </span>
               </span>
               <span className="w-36 shrink-0">
-                <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                <span
+                  className={`rounded-md px-2 py-0.5 text-xs font-medium ${categoryColor(
+                    e.category,
+                  )}`}
+                >
                   {e.category}
                 </span>
               </span>
@@ -465,7 +557,7 @@ export default function ExpenseDashboard({
           ))}
 
           {/* Always-present empty row for adding the next expense inline. */}
-          <li className="bg-amber-50/40 px-5 py-2">
+          <li className="border-t border-amber-200/60 bg-linear-to-r from-amber-50/60 to-amber-100/30 px-5 py-3 transition-colors hover:from-amber-100/60 hover:to-amber-100/40">
             <form onSubmit={handleSubmit} className="flex items-center gap-4">
               <input
                 type="text"

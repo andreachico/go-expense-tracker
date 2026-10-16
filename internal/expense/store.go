@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"sync"
+
+	"github.com/andreachico/go-expense-tracker/internal/auth"
 )
 
 // Store describes the storage operations the rest of the app needs.
@@ -34,6 +36,7 @@ type Store interface {
 type MemoryStore struct {
 	mu     sync.Mutex
 	items  map[int]Expense
+	owner  map[int]int // expense ID -> owning user ID
 	nextID int
 }
 
@@ -42,58 +45,62 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		items:  make(map[int]Expense),
+		owner:  make(map[int]int),
 		nextID: 1,
 	}
 }
 
-// The ctx parameter is unused by the in-memory store (there's no slow I/O to
-// cancel), but it's part of the Store interface so every implementation shares
-// the same signature. The blank-looking `_ context.Context` documents that.
+// Every method scopes its work to the user ID carried on the context (set by the
+// auth middleware), so one account never sees another's expenses.
 
-// List returns all expenses sorted by ID so the output is stable (map iteration
-// order in Go is deliberately random).
-func (s *MemoryStore) List(_ context.Context) ([]Expense, error) {
+// List returns the caller's expenses sorted by ID so the output is stable (map
+// iteration order in Go is deliberately random).
+func (s *MemoryStore) List(ctx context.Context) ([]Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock() // defer runs this when the function returns, even on panic.
 
+	userID := auth.UserID(ctx)
 	list := make([]Expense, 0, len(s.items))
-	for _, e := range s.items {
-		list = append(list, e)
+	for id, e := range s.items {
+		if s.owner[id] == userID {
+			list = append(list, e)
+		}
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
 	return list, nil
 }
 
-// Get returns one expense, or ErrNotFound if the ID is unknown.
-// The comma-ok form `v, ok := m[key]` is how you test map membership in Go.
-func (s *MemoryStore) Get(_ context.Context, id int) (Expense, error) {
+// Get returns one of the caller's expenses, or ErrNotFound if the ID is unknown
+// or owned by another user (so existence isn't leaked across accounts).
+func (s *MemoryStore) Get(ctx context.Context, id int) (Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	e, ok := s.items[id]
-	if !ok {
+	if !ok || s.owner[id] != auth.UserID(ctx) {
 		return Expense{}, ErrNotFound
 	}
 	return e, nil
 }
 
-// Create assigns the next ID, stores the expense, and returns the stored copy.
-func (s *MemoryStore) Create(_ context.Context, e Expense) (Expense, error) {
+// Create assigns the next ID, records the owner, and returns the stored copy.
+func (s *MemoryStore) Create(ctx context.Context, e Expense) (Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	e.ID = s.nextID
 	s.nextID++
 	s.items[e.ID] = e
+	s.owner[e.ID] = auth.UserID(ctx)
 	return e, nil
 }
 
-// Update replaces an existing expense, keeping its original ID.
-func (s *MemoryStore) Update(_ context.Context, id int, e Expense) (Expense, error) {
+// Update replaces one of the caller's expenses, keeping its original ID.
+func (s *MemoryStore) Update(ctx context.Context, id int, e Expense) (Expense, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.items[id]; !ok {
+	if _, ok := s.items[id]; !ok || s.owner[id] != auth.UserID(ctx) {
 		return Expense{}, ErrNotFound
 	}
 	e.ID = id
@@ -101,14 +108,15 @@ func (s *MemoryStore) Update(_ context.Context, id int, e Expense) (Expense, err
 	return e, nil
 }
 
-// Delete removes an expense by ID.
-func (s *MemoryStore) Delete(_ context.Context, id int) error {
+// Delete removes one of the caller's expenses by ID.
+func (s *MemoryStore) Delete(ctx context.Context, id int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.items[id]; !ok {
+	if _, ok := s.items[id]; !ok || s.owner[id] != auth.UserID(ctx) {
 		return ErrNotFound
 	}
 	delete(s.items, id)
+	delete(s.owner, id)
 	return nil
 }

@@ -19,10 +19,12 @@ const PALETTE = [
 
 const MONTH_FMT = new Intl.DateTimeFormat("en-US", { month: "short" });
 
-function SpendingOverview({ expenses }: { expenses: Expense[] }) {
-  const now = new Date();
+// One bar in the overview chart.
+export type OverviewBucket = { label: string; total: number };
 
-  // Build the last 6 month buckets ending with the current month.
+// Bucket actual expenses into the last 6 months ending with the current month.
+function expenseBuckets(expenses: Expense[]): OverviewBucket[] {
+  const now = new Date();
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
     return {
@@ -37,7 +39,17 @@ function SpendingOverview({ expenses }: { expenses: Expense[] }) {
     if (bucket) bucket.total += e.amount;
   }
 
-  const maxTotal = Math.max(...months.map((m) => m.total), 0);
+  return months.map(({ label, total }) => ({ label, total }));
+}
+
+function SpendingOverview({
+  buckets,
+  planned,
+}: {
+  buckets: OverviewBucket[];
+  planned?: boolean;
+}) {
+  const maxTotal = Math.max(...buckets.map((m) => m.total), 0);
   // Round the axis up to a tidy maximum so the gridlines read nicely.
   const niceMax = Math.max(100, Math.ceil(maxTotal / 100) * 100);
   const gridLines = [1, 0.75, 0.5, 0.25, 0].map((f) => Math.round(niceMax * f));
@@ -50,12 +62,14 @@ function SpendingOverview({ expenses }: { expenses: Expense[] }) {
             Spending overview
           </h2>
           <p className="text-sm text-amber-900/70">
-            Your expenses over the last 6 months
+            {planned
+              ? "Your overall planned expenses over the last 6 months"
+              : "Your expenses over the last 6 months"}
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm text-amber-900/70">
           <span className="h-3 w-3 rounded-sm bg-amber-800" />
-          Total spent
+          {planned ? "Overall expenses" : "Total spent"}
         </div>
       </div>
 
@@ -69,73 +83,75 @@ function SpendingOverview({ expenses }: { expenses: Expense[] }) {
         </div>
 
         <div className="relative flex-1">
-          <div className="absolute inset-0 flex flex-col justify-between">
-            {gridLines.map((v, i) => (
+          <div className="relative">
+            <div className="absolute inset-0 flex flex-col justify-between">
+              {gridLines.map((v, i) => (
+                <div
+                  key={v}
+                  className={
+                    i === gridLines.length - 1
+                      ? "border-t border-amber-900/20"
+                      : "border-t border-amber-900/5"
+                  }
+                />
+              ))}
+            </div>
+
+            <div className="relative flex h-56 items-end gap-2">
+              {buckets.map((m, i) => {
+                const heightPct = niceMax > 0 ? (m.total / niceMax) * 100 : 0;
+                const isCurrent = i === buckets.length - 1;
+                return (
+                  <div
+                    key={i}
+                    className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+                  >
+                    {isCurrent && m.total > 0 && (
+                      <div className="absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md bg-amber-900 px-2 py-1 text-xs font-medium text-amber-50">
+                        {currency.format(m.total)}
+                      </div>
+                    )}
+                    <div
+                      className="w-full max-w-10 rounded-t-md bg-amber-800"
+                      style={{ height: `${heightPct}%` }}
+                      title={`${m.label}: ${currency.format(m.total)}`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-2 flex gap-2">
+            {buckets.map((m, i) => (
               <div
-                key={v}
-                className={
-                  i === gridLines.length - 1
-                    ? "border-t border-amber-900/20"
-                    : "border-t border-amber-900/5"
-                }
-              />
+                key={i}
+                className="min-w-0 flex-1 text-center text-sm text-amber-900/60"
+              >
+                {m.label}
+              </div>
             ))}
           </div>
-
-          <div className="relative flex h-56 items-end gap-2">
-            {months.map((m, i) => {
-              const heightPct = niceMax > 0 ? (m.total / niceMax) * 100 : 0;
-              const isCurrent = i === months.length - 1;
-              return (
-                <div
-                  key={m.key}
-                  className="flex h-full flex-1 flex-col items-center justify-end"
-                >
-                  {isCurrent && m.total > 0 && (
-                    <div className="mb-1 rounded-md bg-amber-900 px-2 py-1 text-xs font-medium text-amber-50">
-                      {currency.format(m.total)}
-                    </div>
-                  )}
-                  <div
-                    className="w-full max-w-10 rounded-t-md bg-amber-800"
-                    style={{ height: `${heightPct}%` }}
-                    title={`${m.label}: ${currency.format(m.total)}`}
-                  />
-                </div>
-              );
-            })}
-          </div>
         </div>
-      </div>
-
-      <div className="mt-2 flex gap-2 pl-12">
-        {months.map((m) => (
-          <div
-            key={m.key}
-            className="flex-1 text-center text-sm text-amber-900/60"
-          >
-            {m.label}
-          </div>
-        ))}
       </div>
     </div>
   );
 }
 
-function WhereItWent({ expenses }: { expenses: Expense[] }) {
-  const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+export type Segment = { category: string; amount: number };
 
-  // Aggregate spending per category, largest first.
-  const byCategory = new Map<string, number>();
-  for (const e of expenses) {
-    byCategory.set(e.category, (byCategory.get(e.category) ?? 0) + e.amount);
-  }
-  const segments = Array.from(byCategory, ([category, amount], i) => ({
-    category,
-    amount,
-    fraction: total > 0 ? amount / total : 0,
-    color: PALETTE[i % PALETTE.length],
-  })).sort((a, b) => b.amount - a.amount);
+function WhereItWent({ data }: { data: Segment[] }) {
+  const total = data.reduce((sum, s) => sum + s.amount, 0);
+
+  // Largest first, then assign a palette color and fraction to each slice.
+  const segments = [...data]
+    .sort((a, b) => b.amount - a.amount)
+    .map((s, i) => ({
+      category: s.category,
+      amount: s.amount,
+      fraction: total > 0 ? s.amount / total : 0,
+      color: PALETTE[i % PALETTE.length],
+    }));
 
   const radius = 60;
   const circumference = 2 * Math.PI * radius;
@@ -221,12 +237,35 @@ function WhereItWent({ expenses }: { expenses: Expense[] }) {
   );
 }
 
-// Right-hand analytics column: the bar chart on top, the donut beneath it.
-export default function SpendingCharts({ expenses }: { expenses: Expense[] }) {
+// Aggregate expenses into one slice per category for the donut.
+function byCategory(expenses: Expense[]): Segment[] {
+  const totals = new Map<string, number>();
+  for (const e of expenses) {
+    totals.set(e.category, (totals.get(e.category) ?? 0) + e.amount);
+  }
+  return Array.from(totals, ([category, amount]) => ({ category, amount }));
+}
+
+// Right-hand analytics column: the bar chart on top, the donut beneath it. By
+// default both are derived from actual expenses; pass `overview` to show a
+// custom 6-month bar chart (e.g. the budget sheet's overall planned expenses)
+// and `whereItWent` to show a custom donut breakdown.
+export default function SpendingCharts({
+  expenses,
+  whereItWent,
+  overview,
+}: {
+  expenses: Expense[];
+  whereItWent?: Segment[];
+  overview?: OverviewBucket[];
+}) {
   return (
     <div className="flex flex-col gap-6">
-      <SpendingOverview expenses={expenses} />
-      <WhereItWent expenses={expenses} />
+      <SpendingOverview
+        buckets={overview ?? expenseBuckets(expenses)}
+        planned={overview != null}
+      />
+      <WhereItWent data={whereItWent ?? byCategory(expenses)} />
     </div>
   );
 }

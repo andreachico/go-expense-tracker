@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/andreachico/go-expense-tracker/internal/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -39,10 +40,11 @@ func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, e
 // Close releases every connection in the pool. Call it on shutdown.
 func (s *PostgresStore) Close() { s.pool.Close() }
 
-// List returns every expense ordered by ID.
+// List returns the caller's expenses ordered by ID.
 func (s *PostgresStore) List(ctx context.Context) ([]Expense, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, amount, category, description, date FROM expenses ORDER BY id`)
+		`SELECT id, amount, category, description, date FROM expenses WHERE user_id = $1 ORDER BY id`,
+		auth.UserID(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("querying expenses: %w", err)
 	}
@@ -59,11 +61,12 @@ func (s *PostgresStore) List(ctx context.Context) ([]Expense, error) {
 	return list, rows.Err() // rows.Err reports errors that ended iteration early.
 }
 
-// Get loads one expense by ID, translating "no such row" into our own
-// ErrNotFound so the handlers don't need to know about pgx internals.
+// Get loads one of the caller's expenses by ID, translating "no such row" into
+// our own ErrNotFound so the handlers don't need to know about pgx internals.
 func (s *PostgresStore) Get(ctx context.Context, id int) (Expense, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, amount, category, description, date FROM expenses WHERE id = $1`, id)
+		`SELECT id, amount, category, description, date FROM expenses WHERE id = $1 AND user_id = $2`,
+		id, auth.UserID(ctx))
 
 	e, err := scanExpense(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -75,14 +78,15 @@ func (s *PostgresStore) Get(ctx context.Context, id int) (Expense, error) {
 	return e, nil
 }
 
-// Create inserts a new row and lets PostgreSQL assign the ID via a sequence.
-// RETURNING id gives us that generated value back in one round trip.
+// Create inserts a new row owned by the caller and lets PostgreSQL assign the ID
+// via a sequence. RETURNING id gives us that generated value back in one round
+// trip.
 func (s *PostgresStore) Create(ctx context.Context, e Expense) (Expense, error) {
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO expenses (amount, category, description, date)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO expenses (amount, category, description, date, user_id)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id`,
-		e.Amount, e.Category, e.Description, e.Date,
+		e.Amount, e.Category, e.Description, e.Date, auth.UserID(ctx),
 	).Scan(&e.ID)
 	if err != nil {
 		return Expense{}, fmt.Errorf("inserting expense: %w", err)
@@ -90,13 +94,13 @@ func (s *PostgresStore) Create(ctx context.Context, e Expense) (Expense, error) 
 	return e, nil
 }
 
-// Update overwrites an existing row. RowsAffected() == 0 means nothing matched
-// the ID, which we report as ErrNotFound.
+// Update overwrites one of the caller's rows. RowsAffected() == 0 means nothing
+// matched the ID for this user, which we report as ErrNotFound.
 func (s *PostgresStore) Update(ctx context.Context, id int, e Expense) (Expense, error) {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE expenses SET amount = $1, category = $2, description = $3, date = $4
-		 WHERE id = $5`,
-		e.Amount, e.Category, e.Description, e.Date, id)
+		 WHERE id = $5 AND user_id = $6`,
+		e.Amount, e.Category, e.Description, e.Date, id, auth.UserID(ctx))
 	if err != nil {
 		return Expense{}, fmt.Errorf("updating expense: %w", err)
 	}
@@ -107,9 +111,10 @@ func (s *PostgresStore) Update(ctx context.Context, id int, e Expense) (Expense,
 	return e, nil
 }
 
-// Delete removes a row by ID.
+// Delete removes one of the caller's rows by ID.
 func (s *PostgresStore) Delete(ctx context.Context, id int) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM expenses WHERE id = $1`, id)
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM expenses WHERE id = $1 AND user_id = $2`, id, auth.UserID(ctx))
 	if err != nil {
 		return fmt.Errorf("deleting expense: %w", err)
 	}

@@ -1,4 +1,17 @@
-import type { Debt, Expense, NewDebt, NewExpense, User } from "./types";
+import type {
+  BudgetPlan,
+  Debt,
+  Expense,
+  Income,
+  Investment,
+  NewDebt,
+  NewExpense,
+  NewIncome,
+  NewInvestment,
+  NewSaving,
+  Saving,
+  User,
+} from "./types";
 
 // Browser-side mutations. These hit the same-origin "/api" path, which
 // next.config.ts proxies to the Go backend (so no CORS). Initial listing is
@@ -29,6 +42,22 @@ export async function deleteExpense(id: number): Promise<void> {
   // DELETE returns 204 No Content, so there's no JSON body to parse.
   const res = await fetch(`${BASE}/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`delete failed (${res.status})`);
+}
+
+// saveBudgetPlan replaces a month's budget plan on the backend with one PUT.
+// `keepalive` lets the request complete even if the page navigates away (e.g.
+// when switching months), so the last edit isn't lost.
+export async function saveBudgetPlan(
+  month: string,
+  plan: BudgetPlan,
+): Promise<void> {
+  const res = await fetch(`/api/budget?month=${month}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(plan),
+    keepalive: true,
+  });
+  if (!res.ok) throw new Error(`save failed (${res.status})`);
 }
 
 // --- Authentication ---
@@ -68,10 +97,81 @@ export async function logout(): Promise<void> {
   if (!res.ok) throw new Error(`logout failed (${res.status})`);
 }
 
-// --- Debts ---
+// --- Income ---
 //
-// One-time payments and installment plans (Ratenzahlungen). Loaded client-side
-// so the debts page refetches as rows are added, edited, or paid off.
+// Money received, grouped by "YYYY-MM" month. The list is loaded client-side so
+// the income page and the budget sheet can refetch as the selected month
+// changes.
+
+export async function getIncome(month: string): Promise<Income[]> {
+  return handle<Income[]>(
+    await fetch(`/api/income?month=${month}`, { cache: "no-store" }),
+  );
+}
+
+export async function createIncome(input: NewIncome): Promise<Income> {
+  return handle<Income>(
+    await fetch("/api/income", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function deleteIncome(id: number): Promise<void> {
+  const res = await fetch(`/api/income/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`delete failed (${res.status})`);
+}
+
+// --- Savings, Investments & Debts ---
+//
+// Three sibling resources with the same shape, grouped by "YYYY-MM" month and
+// loaded client-side so each page refetches as the selected month changes.
+
+export async function getSavings(month: string): Promise<Saving[]> {
+  return handle<Saving[]>(
+    await fetch(`/api/savings?month=${month}`, { cache: "no-store" }),
+  );
+}
+
+export async function createSaving(input: NewSaving): Promise<Saving> {
+  return handle<Saving>(
+    await fetch("/api/savings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function deleteSaving(id: number): Promise<void> {
+  const res = await fetch(`/api/savings/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`delete failed (${res.status})`);
+}
+
+export async function getInvestments(month: string): Promise<Investment[]> {
+  return handle<Investment[]>(
+    await fetch(`/api/investments?month=${month}`, { cache: "no-store" }),
+  );
+}
+
+export async function createInvestment(
+  input: NewInvestment,
+): Promise<Investment> {
+  return handle<Investment>(
+    await fetch("/api/investments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function deleteInvestment(id: number): Promise<void> {
+  const res = await fetch(`/api/investments/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`delete failed (${res.status})`);
+}
 
 export async function getDebts(): Promise<Debt[]> {
   return handle<Debt[]>(await fetch("/api/debts", { cache: "no-store" }));

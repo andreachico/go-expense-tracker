@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import type { Expense } from "./types";
+import type { BudgetPlan, Expense } from "./types";
 
 // Server-side data loading. Unlike the browser client (which uses the "/api"
 // proxy), a Server Component runs on the server and must call the backend with
@@ -30,4 +30,18 @@ export async function getExpenses(): Promise<Expense[]> {
     throw new Error(`failed to load expenses (${res.status})`);
   }
   return res.json() as Promise<Expense[]>;
+}
+
+// getBudgetPlan loads the saved budget plan for a month ("YYYY-MM"). An empty
+// object means nothing has been saved for that month yet.
+export async function getBudgetPlan(month: string): Promise<BudgetPlan> {
+  const res = await fetch(`${BACKEND_URL}/budget?month=${month}`, {
+    cache: "no-store",
+    headers: await authHeaders(),
+  });
+  if (res.status === 401) redirect("/login");
+  if (!res.ok) {
+    throw new Error(`failed to load budget (${res.status})`);
+  }
+  return res.json() as Promise<BudgetPlan>;
 }
