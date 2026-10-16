@@ -14,6 +14,7 @@ import (
 
 	"github.com/andreachico/go-expense-tracker/internal/auth"
 	"github.com/andreachico/go-expense-tracker/internal/budget"
+	"github.com/andreachico/go-expense-tracker/internal/debt"
 	"github.com/andreachico/go-expense-tracker/internal/expense"
 	"github.com/joho/godotenv"
 )
@@ -67,6 +68,14 @@ func main() {
 	budgetStore := newBudgetStore()
 	budget.NewHandler(budgetStore).Register(protected)
 	if closer, ok := budgetStore.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+
+	// Debts (one-time payments and installment plans) follow the same per-user
+	// pattern.
+	debtStore := newDebtStore()
+	debt.NewHandler(debtStore).Register(protected)
+	if closer, ok := debtStore.(interface{ Close() }); ok {
 		defer closer.Close()
 	}
 
@@ -160,6 +169,22 @@ func newBudgetStore() budget.Store {
 	}
 
 	store, err := budget.NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("could not connect to database: %v", err)
+	}
+	return store
+}
+
+// newDebtStore mirrors newStore for debts: PostgreSQL when DATABASE_URL is set,
+// in-memory otherwise.
+func newDebtStore() debt.Store {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Println("DATABASE_URL not set — using in-memory debt store")
+		return debt.NewMemoryStore()
+	}
+
+	store, err := debt.NewPostgresStore(context.Background(), dsn)
 	if err != nil {
 		log.Fatalf("could not connect to database: %v", err)
 	}
