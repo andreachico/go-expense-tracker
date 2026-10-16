@@ -1,4 +1,4 @@
-import type { Expense, NewExpense } from "./types";
+import type { Debt, Expense, NewDebt, NewExpense, User } from "./types";
 
 // Browser-side mutations. These hit the same-origin "/api" path, which
 // next.config.ts proxies to the Go backend (so no CORS). Initial listing is
@@ -28,5 +28,93 @@ export async function createExpense(input: NewExpense): Promise<Expense> {
 export async function deleteExpense(id: number): Promise<void> {
   // DELETE returns 204 No Content, so there's no JSON body to parse.
   const res = await fetch(`${BASE}/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`delete failed (${res.status})`);
+}
+
+// --- Authentication ---
+//
+// The Go API sets an HttpOnly session cookie on register/login; the browser
+// sends it back automatically on every same-origin "/api" request, so there's
+// no token for JavaScript to manage.
+
+export async function register(input: {
+  username: string;
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+}): Promise<User> {
+  return handle<User>(
+    await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function login(username: string, password: string): Promise<User> {
+  return handle<User>(
+    await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }),
+  );
+}
+
+export async function logout(): Promise<void> {
+  const res = await fetch("/api/auth/logout", { method: "POST" });
+  if (!res.ok) throw new Error(`logout failed (${res.status})`);
+}
+
+// --- Debts ---
+//
+// One-time payments and installment plans (Ratenzahlungen). Loaded client-side
+// so the debts page refetches as rows are added, edited, or paid off.
+
+export async function getDebts(): Promise<Debt[]> {
+  return handle<Debt[]>(await fetch("/api/debts", { cache: "no-store" }));
+}
+
+export async function getDebt(id: number): Promise<Debt> {
+  return handle<Debt>(await fetch(`/api/debts/${id}`, { cache: "no-store" }));
+}
+
+export async function createDebt(input: NewDebt): Promise<Debt> {
+  return handle<Debt>(
+    await fetch("/api/debts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function updateDebt(id: number, input: NewDebt): Promise<Debt> {
+  return handle<Debt>(
+    await fetch(`/api/debts/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function updateDebtPaid(
+  id: number,
+  paidMonths: number,
+): Promise<Debt> {
+  return handle<Debt>(
+    await fetch(`/api/debts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paidMonths }),
+    }),
+  );
+}
+
+export async function deleteDebt(id: number): Promise<void> {
+  const res = await fetch(`/api/debts/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`delete failed (${res.status})`);
 }

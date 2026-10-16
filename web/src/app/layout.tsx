@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "./sidebar";
-import TopBar from "./topbar";
+import Chrome from "./chrome";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Expense Tracker",
+  title: "FinTracker",
   description: "A simple expense tracker UI backed by a Go + PostgreSQL API.",
 };
 
@@ -26,11 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex">
-        <Sidebar />
-        <div className="flex flex-1 flex-col">
-          <TopBar />
-          {children}
-        </div>
+        <Chrome>{children}</Chrome>
       </body>
     </html>
   );
