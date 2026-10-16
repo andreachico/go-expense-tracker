@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/andreachico/go-expense-tracker/internal/auth"
 	"github.com/andreachico/go-expense-tracker/internal/budget"
 	"github.com/andreachico/go-expense-tracker/internal/expense"
 	"github.com/joho/godotenv"
@@ -32,11 +35,27 @@ func main() {
 
 	mux.HandleFunc("GET /health", healthHandler)
 
+	// Authentication: a user store plus the handler that issues and verifies
+	// session cookies. The /auth/* routes (register, login, logout, me) stay
+	// public so people can sign in.
+	authStore := newAuthStore()
+	if closer, ok := authStore.(interface{ Close() }); ok {
+		defer closer.Close()
+	}
+	authHandler := auth.NewHandler(authStore, sessionSecret(), cookieSecure())
+	authHandler.Register(mux)
+
+	// Everything below is per-user and must be behind a login. We register these
+	// routes on a separate mux and gate the whole thing with RequireAuth, which
+	// rejects unauthenticated requests and injects the user ID into the context
+	// so each store scopes its data to the logged-in account.
+	protected := http.NewServeMux()
+
 	// Pick the storage backend at startup. If DATABASE_URL is set we use
 	// PostgreSQL; otherwise we fall back to the in-memory store. Because both
 	// satisfy the expense.Store interface, the handler code is identical.
 	store := newStore()
-	expense.NewHandler(store).Register(mux)
+	expense.NewHandler(store).Register(protected)
 
 	// If the store owns resources (the Postgres pool), close them on exit. The
 	// interface assertion skips stores that have no Close method (MemoryStore).
@@ -46,10 +65,14 @@ func main() {
 
 	// The budget sheet has its own store and routes, chosen the same way.
 	budgetStore := newBudgetStore()
-	budget.NewHandler(budgetStore).Register(mux)
+	budget.NewHandler(budgetStore).Register(protected)
 	if closer, ok := budgetStore.(interface{ Close() }); ok {
 		defer closer.Close()
 	}
+
+	// Any path not matched by /health or /auth/* falls through to here, so every
+	// expense and budget route is protected by the auth middleware.
+	mux.Handle("/", authHandler.RequireAuth(protected))
 
 	srv := &http.Server{
 		Addr:    ":8080",
@@ -141,6 +164,45 @@ func newBudgetStore() budget.Store {
 		log.Fatalf("could not connect to database: %v", err)
 	}
 	return store
+}
+
+// newAuthStore mirrors newStore for user accounts: PostgreSQL when DATABASE_URL
+// is set, in-memory otherwise.
+func newAuthStore() auth.Store {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Println("DATABASE_URL not set — using in-memory user store")
+		return auth.NewMemoryStore()
+	}
+
+	store, err := auth.NewPostgresStore(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("could not connect to database: %v", err)
+	}
+	return store
+}
+
+// sessionSecret returns the key used to sign session tokens. In production set
+// SESSION_SECRET to a long random value so logins survive restarts and can't be
+// forged. If it's unset we generate a random key and warn — handy for dev, but
+// it means every restart logs everyone out.
+func sessionSecret() []byte {
+	if s := os.Getenv("SESSION_SECRET"); s != "" {
+		return []byte(s)
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatalf("could not generate session secret: %v", err)
+	}
+	log.Println("SESSION_SECRET not set — using a random key (sessions reset on restart)")
+	return []byte(hex.EncodeToString(buf))
+}
+
+// cookieSecure reports whether the session cookie should be marked HTTPS-only.
+// Defaults to false so cookies work over http://localhost in development; set
+// COOKIE_SECURE=true when serving the app over HTTPS in production.
+func cookieSecure() bool {
+	return os.Getenv("COOKIE_SECURE") == "true"
 }
 
 // healthHandler reports that the service is up. Load balancers and monitoring
