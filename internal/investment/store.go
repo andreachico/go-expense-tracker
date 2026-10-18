@@ -8,51 +8,56 @@ import (
 	"github.com/andreachico/go-expense-tracker/internal/auth"
 )
 
-// Store describes the storage operations for investment records. The handlers
+// Store describes the storage operations for investment sales. The handlers
 // depend on this interface so the in-memory and PostgreSQL implementations
 // interchange.
 type Store interface {
-	List(ctx context.Context, month string) ([]Investment, error)
-	Create(ctx context.Context, i Investment) (Investment, error)
+	List(ctx context.Context) ([]Sale, error)
+	Create(ctx context.Context, s Sale) (Sale, error)
 	Delete(ctx context.Context, id int) error
 }
 
-// MemoryStore keeps investments in a map; data is lost when the program stops. A
-// mutex guards the maps because the server handles requests concurrently.
+// MemoryStore keeps sales in a map; data is lost when the program stops. A mutex
+// guards the maps because the server handles requests concurrently.
 type MemoryStore struct {
 	mu     sync.Mutex
-	items  map[int]Investment
-	owner  map[int]int // investment ID -> owning user ID
+	items  map[int]Sale
+	owner  map[int]int // sale ID -> owning user ID
 	nextID int
 }
 
-// NewMemoryStore returns a ready-to-use in-memory investment store.
+// NewMemoryStore returns a ready-to-use in-memory sales store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		items:  make(map[int]Investment),
+		items:  make(map[int]Sale),
 		owner:  make(map[int]int),
 		nextID: 1,
 	}
 }
 
-// List returns the caller's investments for a month, sorted by ID.
-func (s *MemoryStore) List(ctx context.Context, month string) ([]Investment, error) {
+// List returns all of the caller's sales, newest month first.
+func (s *MemoryStore) List(ctx context.Context) ([]Sale, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	userID := auth.UserID(ctx)
-	list := make([]Investment, 0)
+	list := make([]Sale, 0)
 	for id, item := range s.items {
-		if s.owner[id] == userID && item.Month == month {
+		if s.owner[id] == userID {
 			list = append(list, item)
 		}
 	}
-	sort.Slice(list, func(a, b int) bool { return list[a].ID < list[b].ID })
+	sort.Slice(list, func(a, b int) bool {
+		if list[a].Month != list[b].Month {
+			return list[a].Month > list[b].Month
+		}
+		return list[a].ID > list[b].ID
+	})
 	return list, nil
 }
 
 // Create assigns the next ID, records the owner, and returns the stored copy.
-func (s *MemoryStore) Create(ctx context.Context, item Investment) (Investment, error) {
+func (s *MemoryStore) Create(ctx context.Context, item Sale) (Sale, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,7 +68,7 @@ func (s *MemoryStore) Create(ctx context.Context, item Investment) (Investment, 
 	return item, nil
 }
 
-// Delete removes one of the caller's investment rows by ID.
+// Delete removes one of the caller's sale rows by ID.
 func (s *MemoryStore) Delete(ctx context.Context, id int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -81,13 +81,14 @@ func main() {
 		defer closer.Close()
 	}
 
-	// Savings, investments, and debts each follow the same per-user pattern.
+	// Savings and debts each follow the same per-user pattern.
 	savingsStore := newSavingsStore()
 	savings.NewHandler(savingsStore).Register(protected)
 	if closer, ok := savingsStore.(interface{ Close() }); ok {
 		defer closer.Close()
 	}
 
+	// Investment sales (buys are planned in the budget sheet).
 	investmentStore := newInvestmentStore()
 	investment.NewHandler(investmentStore).Register(protected)
 	if closer, ok := investmentStore.(interface{ Close() }); ok {
@@ -228,7 +229,7 @@ func newSavingsStore() savings.Store {
 	return store
 }
 
-// newInvestmentStore mirrors newStore for investments: PostgreSQL when
+// newInvestmentStore mirrors newStore for investment sales: PostgreSQL when
 // DATABASE_URL is set, in-memory otherwise.
 func newInvestmentStore() investment.Store {
 	dsn := os.Getenv("DATABASE_URL")

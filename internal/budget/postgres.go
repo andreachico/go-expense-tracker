@@ -78,3 +78,32 @@ func (s *PostgresStore) Save(ctx context.Context, month string, plan Plan) error
 	}
 	return tx.Commit(ctx)
 }
+
+// Breakdown returns each entry's amount per month across all of the caller's
+// saved months: entryKey -> (month -> amount).
+func (s *PostgresStore) Breakdown(ctx context.Context) (map[string]map[string]float64, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT entry_key, month, SUM(amount) FROM budget_amounts WHERE user_id = $1 GROUP BY entry_key, month`,
+		auth.UserID(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("querying budget breakdown: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]map[string]float64)
+	for rows.Next() {
+		var (
+			key   string
+			month string
+			sum   float64
+		)
+		if err := rows.Scan(&key, &month, &sum); err != nil {
+			return nil, fmt.Errorf("scanning budget breakdown: %w", err)
+		}
+		if out[key] == nil {
+			out[key] = make(map[string]float64)
+		}
+		out[key][month] = sum
+	}
+	return out, rows.Err()
+}

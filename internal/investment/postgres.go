@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresStore persists investments in the "investments" table. It implements
+// PostgresStore persists sales in the "investment_sales" table. It implements
 // the same Store interface as MemoryStore, so the handlers work with either.
 type PostgresStore struct {
 	pool *pgxpool.Pool
@@ -30,21 +30,21 @@ func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, e
 // Close releases every connection in the pool. Call it on shutdown.
 func (s *PostgresStore) Close() { s.pool.Close() }
 
-// List returns the caller's investments for a month, ordered by ID.
-func (s *PostgresStore) List(ctx context.Context, month string) ([]Investment, error) {
+// List returns all of the caller's sales, newest month first.
+func (s *PostgresStore) List(ctx context.Context) ([]Sale, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, amount, month FROM investments WHERE user_id = $1 AND month = $2 ORDER BY id`,
-		auth.UserID(ctx), month)
+		`SELECT id, name, amount, month FROM investment_sales WHERE user_id = $1 ORDER BY month DESC, id DESC`,
+		auth.UserID(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("querying investments: %w", err)
+		return nil, fmt.Errorf("querying investment sales: %w", err)
 	}
 	defer rows.Close()
 
-	list := make([]Investment, 0)
+	list := make([]Sale, 0)
 	for rows.Next() {
-		var item Investment
+		var item Sale
 		if err := rows.Scan(&item.ID, &item.Name, &item.Amount, &item.Month); err != nil {
-			return nil, fmt.Errorf("scanning investments: %w", err)
+			return nil, fmt.Errorf("scanning investment sale: %w", err)
 		}
 		list = append(list, item)
 	}
@@ -52,15 +52,15 @@ func (s *PostgresStore) List(ctx context.Context, month string) ([]Investment, e
 }
 
 // Create inserts a new row owned by the caller and returns it with its new ID.
-func (s *PostgresStore) Create(ctx context.Context, item Investment) (Investment, error) {
+func (s *PostgresStore) Create(ctx context.Context, item Sale) (Sale, error) {
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO investments (name, amount, month, user_id)
+		`INSERT INTO investment_sales (name, amount, month, user_id)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING id`,
 		item.Name, item.Amount, item.Month, auth.UserID(ctx),
 	).Scan(&item.ID)
 	if err != nil {
-		return Investment{}, fmt.Errorf("inserting investment: %w", err)
+		return Sale{}, fmt.Errorf("inserting investment sale: %w", err)
 	}
 	return item, nil
 }
@@ -68,9 +68,9 @@ func (s *PostgresStore) Create(ctx context.Context, item Investment) (Investment
 // Delete removes one of the caller's rows by ID.
 func (s *PostgresStore) Delete(ctx context.Context, id int) error {
 	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM investments WHERE id = $1 AND user_id = $2`, id, auth.UserID(ctx))
+		`DELETE FROM investment_sales WHERE id = $1 AND user_id = $2`, id, auth.UserID(ctx))
 	if err != nil {
-		return fmt.Errorf("deleting investment: %w", err)
+		return fmt.Errorf("deleting investment sale: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

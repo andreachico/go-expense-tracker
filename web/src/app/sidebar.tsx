@@ -92,9 +92,8 @@ export default function Sidebar() {
             strokeLinejoin="round"
             className="h-5 w-5"
           >
-            <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2Z" />
-            <path d="M3 7a2 2 0 0 1 2-2h11" />
-            <circle cx="16" cy="13" r="1.25" fill="currentColor" stroke="none" />
+            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+            <polyline points="16 7 22 7 22 13" />
           </svg>
         </span>
         <span className="text-base font-semibold text-amber-900">

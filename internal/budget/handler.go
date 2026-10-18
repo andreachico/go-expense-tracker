@@ -35,6 +35,7 @@ func NewHandler(store Store) *Handler {
 // replace a month's plan. The month is selected with a ?month=YYYY-MM query.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /budget", h.get)
+	mux.HandleFunc("GET /budget/breakdown", h.breakdown)
 	mux.HandleFunc("PUT /budget", h.save)
 }
 
@@ -45,6 +46,17 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, plan)
+}
+
+// breakdown returns each budget line's amount per month across all of the
+// caller's months, keyed by entry key (e.g. "investments:ethereum").
+func (h *Handler) breakdown(w http.ResponseWriter, r *http.Request) {
+	data, err := h.store.Breakdown(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, data)
 }
 
 func (h *Handler) save(w http.ResponseWriter, r *http.Request) {

@@ -42,9 +42,8 @@ CREATE TABLE IF NOT EXISTS income (
 );
 CREATE INDEX IF NOT EXISTS income_user_month_idx ON income (user_id, month);
 
--- Savings and investments: each row is one named entry scoped to a user and a
--- "YYYY-MM" month. They share the same shape (name, amount, month) and mirror
--- the income table.
+-- Savings: each row is one named entry scoped to a user and a "YYYY-MM" month.
+-- It mirrors the income table's shape (name, amount, month).
 CREATE TABLE IF NOT EXISTS savings (
     id      SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -54,14 +53,17 @@ CREATE TABLE IF NOT EXISTS savings (
 );
 CREATE INDEX IF NOT EXISTS savings_user_month_idx ON savings (user_id, month);
 
-CREATE TABLE IF NOT EXISTS investments (
+-- Investment sales: each row records cashing out part of a holding in a given
+-- "YYYY-MM" month. Buys are planned in the budget sheet (budget_amounts); a sale
+-- is subtracted from an asset's running total on the investments page.
+CREATE TABLE IF NOT EXISTS investment_sales (
     id      SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     name    TEXT NOT NULL,
     amount  DOUBLE PRECISION NOT NULL CHECK (amount > 0),
     month   TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS investments_user_month_idx ON investments (user_id, month);
+CREATE INDEX IF NOT EXISTS investment_sales_user_month_idx ON investment_sales (user_id, month);
 
 -- Debts come in two kinds: one-time payments (kind='onetime', paid in full in a
 -- single month) and installment plans / Ratenzahlungen (kind='installment', a
