@@ -46,9 +46,8 @@ export interface Income {
 // id.
 export type NewIncome = Omit<Income, "id">;
 
-// Savings, investments, and debts share the same shape: a named entry scoped to
-// a "YYYY-MM" month. They mirror the Go savings.Saving / investment.Investment /
-// debt.Debt types.
+// Savings is a named entry scoped to a "YYYY-MM" month, mirroring the Go
+// savings.Saving type.
 export interface Saving {
   id: number;
   name: string;
@@ -57,13 +56,16 @@ export interface Saving {
 }
 export type NewSaving = Omit<Saving, "id">;
 
-export interface Investment {
+// A recorded sale of a holding in a "YYYY-MM" month. Buys are planned in the
+// budget sheet; sales are subtracted from an asset's running total. Mirrors the
+// Go investment.Sale type.
+export interface InvestmentSale {
   id: number;
   name: string;
   amount: number;
-  month: string;
+  month: string; // "YYYY-MM"
 }
-export type NewInvestment = Omit<Investment, "id">;
+export type NewInvestmentSale = Omit<InvestmentSale, "id">;
 
 export interface Debt {
   id: number;

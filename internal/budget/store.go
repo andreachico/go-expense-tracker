@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/andreachico/go-expense-tracker/internal/auth"
@@ -14,6 +15,7 @@ import (
 type Store interface {
 	Get(ctx context.Context, month string) (Plan, error)
 	Save(ctx context.Context, month string, plan Plan) error
+	Breakdown(ctx context.Context) (map[string]map[string]float64, error)
 }
 
 // MemoryStore keeps the plans in memory; data is lost when the program stops.
@@ -60,4 +62,28 @@ func (s *MemoryStore) Save(ctx context.Context, month string, plan Plan) error {
 	}
 	s.plans[key(ctx, month)] = cp
 	return nil
+}
+
+// Breakdown returns each entry's amount per month across all of the caller's
+// saved months: entryKey -> (month -> amount). It lets views show a budget line
+// over time (and sum it) without loading each month separately.
+func (s *MemoryStore) Breakdown(ctx context.Context) (map[string]map[string]float64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prefix := fmt.Sprintf("%d:", auth.UserID(ctx))
+	out := make(map[string]map[string]float64)
+	for k, plan := range s.plans {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		month := strings.TrimPrefix(k, prefix)
+		for entryKey, entry := range plan {
+			if out[entryKey] == nil {
+				out[entryKey] = make(map[string]float64)
+			}
+			out[entryKey][month] += entry.Amount
+		}
+	}
+	return out, nil
 }

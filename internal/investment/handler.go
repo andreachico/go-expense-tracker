@@ -17,21 +17,16 @@ func NewHandler(store Store) *Handler {
 	return &Handler{store: store}
 }
 
-// Register attaches the investment routes to the given router.
+// Register attaches the investment-sale routes to the given router.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /investments", h.list)
 	mux.HandleFunc("POST /investments", h.create)
 	mux.HandleFunc("DELETE /investments/{id}", h.delete)
 }
 
-// list returns the caller's investments for the "month" query param ("YYYY-MM").
+// list returns all of the caller's investment sales.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	month := r.URL.Query().Get("month")
-	if !monthPattern.MatchString(month) {
-		writeError(w, http.StatusBadRequest, "month query param must be in YYYY-MM format")
-		return
-	}
-	items, err := h.store.List(r.Context(), month)
+	items, err := h.store.List(r.Context())
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -40,11 +35,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	var item Investment
+	var item Sale
 	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	item.Normalize()
 	if err := item.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -84,7 +80,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 
 func writeStoreError(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotFound) {
-		writeError(w, http.StatusNotFound, "investment not found")
+		writeError(w, http.StatusNotFound, "sale not found")
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "internal server error")

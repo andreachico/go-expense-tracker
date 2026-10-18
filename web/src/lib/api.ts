@@ -3,11 +3,11 @@ import type {
   Debt,
   Expense,
   Income,
-  Investment,
+  InvestmentSale,
   NewDebt,
   NewExpense,
   NewIncome,
-  NewInvestment,
+  NewInvestmentSale,
   NewSaving,
   Saving,
   User,
@@ -58,6 +58,18 @@ export async function saveBudgetPlan(
     keepalive: true,
   });
   if (!res.ok) throw new Error(`save failed (${res.status})`);
+}
+
+// getBudgetBreakdown returns each budget line's amount per month across every
+// saved month, keyed by entry key then month (e.g.
+// { "investments:ethereum": { "2026-10": 100 } }). Used by read-only views that
+// show a budget line over time.
+export async function getBudgetBreakdown(): Promise<
+  Record<string, Record<string, number>>
+> {
+  return handle<Record<string, Record<string, number>>>(
+    await fetch(`/api/budget/breakdown`, { cache: "no-store" }),
+  );
 }
 
 // --- Authentication ---
@@ -124,10 +136,10 @@ export async function deleteIncome(id: number): Promise<void> {
   if (!res.ok) throw new Error(`delete failed (${res.status})`);
 }
 
-// --- Savings, Investments & Debts ---
+// --- Savings & Debts ---
 //
-// Three sibling resources with the same shape, grouped by "YYYY-MM" month and
-// loaded client-side so each page refetches as the selected month changes.
+// Sibling resources grouped by "YYYY-MM" month and loaded client-side so each
+// page refetches as the selected month changes.
 
 export async function getSavings(month: string): Promise<Saving[]> {
   return handle<Saving[]>(
@@ -150,16 +162,21 @@ export async function deleteSaving(id: number): Promise<void> {
   if (!res.ok) throw new Error(`delete failed (${res.status})`);
 }
 
-export async function getInvestments(month: string): Promise<Investment[]> {
-  return handle<Investment[]>(
-    await fetch(`/api/investments?month=${month}`, { cache: "no-store" }),
+// --- Investment sales ---
+//
+// Buys are planned in the budget sheet; these record cashing out part of a
+// holding. Each sale is subtracted from an asset's running total.
+
+export async function getInvestmentSales(): Promise<InvestmentSale[]> {
+  return handle<InvestmentSale[]>(
+    await fetch(`/api/investments`, { cache: "no-store" }),
   );
 }
 
-export async function createInvestment(
-  input: NewInvestment,
-): Promise<Investment> {
-  return handle<Investment>(
+export async function createInvestmentSale(
+  input: NewInvestmentSale,
+): Promise<InvestmentSale> {
+  return handle<InvestmentSale>(
     await fetch("/api/investments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -168,7 +185,7 @@ export async function createInvestment(
   );
 }
 
-export async function deleteInvestment(id: number): Promise<void> {
+export async function deleteInvestmentSale(id: number): Promise<void> {
   const res = await fetch(`/api/investments/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`delete failed (${res.status})`);
 }
