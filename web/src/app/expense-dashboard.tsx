@@ -311,17 +311,16 @@ export default function ExpenseDashboard({
               strokeLinejoin="round"
               className="h-6 w-6"
             >
-              <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2Z" />
-              <path d="M3 7a2 2 0 0 1 2-2h11" />
-              <circle cx="16" cy="13" r="1.25" fill="currentColor" stroke="none" />
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+              <polyline points="16 7 22 7 22 13" />
             </svg>
           </span>
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              FinTracker
+              Variable Expenses
             </h1>
             <p className="text-sm text-amber-900/70">
-              Go API · PostgreSQL · Next.js
+              Track your day-to-day spending and see where your money goes each month.
             </p>
           </div>
         </div>
