@@ -24,14 +24,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /savings/{id}", h.delete)
 }
 
-// list returns the caller's savings for the "month" query param ("YYYY-MM").
+// list returns all of the caller's savings withdrawals.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	month := r.URL.Query().Get("month")
-	if !monthPattern.MatchString(month) {
-		writeError(w, http.StatusBadRequest, "month query param must be in YYYY-MM format")
-		return
-	}
-	items, err := h.store.List(r.Context(), month)
+	items, err := h.store.List(r.Context())
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -45,6 +40,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
+	item.Normalize()
 	if err := item.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

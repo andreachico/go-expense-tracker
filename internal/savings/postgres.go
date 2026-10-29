@@ -30,11 +30,11 @@ func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, e
 // Close releases every connection in the pool. Call it on shutdown.
 func (s *PostgresStore) Close() { s.pool.Close() }
 
-// List returns the caller's savings for a month, ordered by ID.
-func (s *PostgresStore) List(ctx context.Context, month string) ([]Saving, error) {
+// List returns all of the caller's savings withdrawals, newest month first.
+func (s *PostgresStore) List(ctx context.Context) ([]Saving, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, amount, month FROM savings WHERE user_id = $1 AND month = $2 ORDER BY id`,
-		auth.UserID(ctx), month)
+		`SELECT id, name, amount, month FROM savings WHERE user_id = $1 ORDER BY month DESC, id DESC`,
+		auth.UserID(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("querying savings: %w", err)
 	}

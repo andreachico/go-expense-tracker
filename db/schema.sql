@@ -42,8 +42,9 @@ CREATE TABLE IF NOT EXISTS income (
 );
 CREATE INDEX IF NOT EXISTS income_user_month_idx ON income (user_id, month);
 
--- Savings: each row is one named entry scoped to a user and a "YYYY-MM" month.
--- It mirrors the income table's shape (name, amount, month).
+-- Savings: each row records a withdrawal from a fund in a given "YYYY-MM" month.
+-- Deposits are planned in the budget sheet (budget_amounts, "savings:*" keys); a
+-- withdrawal is subtracted from a fund's running total on the savings page.
 CREATE TABLE IF NOT EXISTS savings (
     id      SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,

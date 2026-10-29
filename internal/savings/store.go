@@ -12,7 +12,7 @@ import (
 // depend on this interface so the in-memory and PostgreSQL implementations
 // interchange.
 type Store interface {
-	List(ctx context.Context, month string) ([]Saving, error)
+	List(ctx context.Context) ([]Saving, error)
 	Create(ctx context.Context, s Saving) (Saving, error)
 	Delete(ctx context.Context, id int) error
 }
@@ -35,19 +35,24 @@ func NewMemoryStore() *MemoryStore {
 	}
 }
 
-// List returns the caller's savings for a month, sorted by ID for stable output.
-func (s *MemoryStore) List(ctx context.Context, month string) ([]Saving, error) {
+// List returns all of the caller's savings withdrawals, newest month first.
+func (s *MemoryStore) List(ctx context.Context) ([]Saving, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	userID := auth.UserID(ctx)
 	list := make([]Saving, 0)
 	for id, item := range s.items {
-		if s.owner[id] == userID && item.Month == month {
+		if s.owner[id] == userID {
 			list = append(list, item)
 		}
 	}
-	sort.Slice(list, func(a, b int) bool { return list[a].ID < list[b].ID })
+	sort.Slice(list, func(a, b int) bool {
+		if list[a].Month != list[b].Month {
+			return list[a].Month > list[b].Month
+		}
+		return list[a].ID > list[b].ID
+	})
 	return list, nil
 }
 

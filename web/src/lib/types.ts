@@ -46,8 +46,9 @@ export interface Income {
 // id.
 export type NewIncome = Omit<Income, "id">;
 
-// Savings is a named entry scoped to a "YYYY-MM" month, mirroring the Go
-// savings.Saving type.
+// Savings is a recorded withdrawal from a fund in a "YYYY-MM" month. Deposits
+// are planned in the budget sheet; withdrawals are subtracted from a fund's
+// running total. Mirrors the Go savings.Saving type.
 export interface Saving {
   id: number;
   name: string;

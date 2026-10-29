@@ -10,8 +10,9 @@ import (
 	"strings"
 )
 
-// Saving is a single savings entry for a given month, e.g.
-// {Name: "Emergency Fund", Amount: 500, Month: "2026-10"}.
+// Saving is a single withdrawal from a fund in a given month, e.g.
+// {Name: "Emergency Fund", Amount: 500, Month: "2026-10"}. Deposits are planned
+// in the budget sheet; a withdrawal is subtracted from a fund's running total.
 type Saving struct {
 	ID     int     `json:"id"`
 	Name   string  `json:"name"`
@@ -25,6 +26,9 @@ var ErrNotFound = errors.New("savings entry not found")
 
 // monthPattern matches a "YYYY-MM" month key.
 var monthPattern = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
+// Normalize tidies user input before validation and storage.
+func (s *Saving) Normalize() { s.Name = strings.TrimSpace(s.Name) }
 
 // Validate reports whether the savings record is well-formed before storing it.
 func (s Saving) Validate() error {

@@ -136,14 +136,14 @@ export async function deleteIncome(id: number): Promise<void> {
   if (!res.ok) throw new Error(`delete failed (${res.status})`);
 }
 
-// --- Savings & Debts ---
+// --- Savings ---
 //
-// Sibling resources grouped by "YYYY-MM" month and loaded client-side so each
-// page refetches as the selected month changes.
+// Deposits are planned in the budget sheet; these record withdrawing from a
+// fund. Each withdrawal is subtracted from a fund's running total.
 
-export async function getSavings(month: string): Promise<Saving[]> {
+export async function getSavings(): Promise<Saving[]> {
   return handle<Saving[]>(
-    await fetch(`/api/savings?month=${month}`, { cache: "no-store" }),
+    await fetch(`/api/savings`, { cache: "no-store" }),
   );
 }
 

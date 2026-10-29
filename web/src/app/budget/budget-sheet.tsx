@@ -106,12 +106,18 @@ const INVESTMENTS: Row[] = [
   { id: "sp500", type: "Investment", category: "S&P", amount: "0.00" },
   { id: "ethereum", type: "Investment", category: "Ethereum", amount: "0.00" },
   { id: "xrp", type: "Investment", category: "XRP", amount: "0.00" },
-  { id: "emergency", type: "Investment", category: "Emergency Fund", amount: "0.00" },
+];
+
+const SAVINGS: Row[] = [
+  { id: "emergency", type: "Savings", category: "Emergency Fund", amount: "0.00" },
+  { id: "travel", type: "Savings", category: "Travel Fund", amount: "0.00" },
+  { id: "ph", type: "Savings", category: "PH Fund", amount: "0.00" },
 ];
 
 const SECTIONS: Section[] = [
   { id: "fix", title: "Fixkosten", showDue: true, rows: FIXKOSTEN },
   { id: "investments", title: "Investments", showDue: false, rows: INVESTMENTS },
+  { id: "savings", title: "Savings", showDue: false, rows: SAVINGS },
   { id: "sinking", title: "Sinking Funds", showDue: false, rows: SINKING_FUNDS },
   { id: "raten", title: "Ratenzahlungen", showDue: true, rows: RATENZAHLUNGEN },
   { id: "birthdays", title: "Birthdays", showDue: false, rows: BIRTHDAYS },
