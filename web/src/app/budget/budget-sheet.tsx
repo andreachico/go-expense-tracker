@@ -12,6 +12,13 @@ const currency = new Intl.NumberFormat("en-IE", {
   currency: "EUR",
 });
 
+// Render a stored amount string as formatted currency, or an em dash when empty.
+// Amounts are read-only in the table and edited through the row modal.
+const displayAmount = (v?: string) =>
+  v != null && v !== "" && !Number.isNaN(Number(v))
+    ? currency.format(Number(v))
+    : "—";
+
 // Format a "YYYY-MM" month key for display, e.g. "October" or "October 2026".
 function monthLabel(month: string, opts: Intl.DateTimeFormatOptions): string {
   const [year, m] = month.split("-").map(Number);
@@ -132,6 +139,12 @@ const VARIABLE_KOSTEN: Row[] = [
   { id: "dining", type: "Dining Out", category: "Wolt / Restaurant", amount: "20.00" },
   { id: "leisure", type: "Leisure", category: "Freizeit/Allowance", amount: "110.00" },
 ];
+
+// Category options for the Variable Kosten "Add row" modal dropdown, derived
+// from the built-in rows so they stay in sync.
+const VARIABLE_CATEGORIES = Array.from(
+  new Set(VARIABLE_KOSTEN.map((r) => r.category)),
+);
 
 // Editable amounts keyed by section id then row id.
 type Values = Record<string, Record<string, string>>;
@@ -306,6 +319,26 @@ export default function BudgetSheet({
   // Built-in rows the user has deleted, so they don't reappear from the seed.
   const [hidden, setHidden] = useState<Hidden>(() => extractHidden(initialPlan));
 
+  // Section id whose "Add row" modal is currently open (null = closed).
+  const [modalSection, setModalSection] = useState<string | null>(null);
+  // Row currently being edited via the modal (null = not editing).
+  const [editing, setEditing] = useState<{
+    sectionId: string;
+    rowId: string;
+    isBuiltin: boolean;
+    initial: { type: string; category: string; amount: string; due: string };
+  } | null>(null);
+
+  // Whether this month already had a saved plan (any real entry, ignoring the
+  // meta/hidden bookkeeping keys). Used so the overview bar only reflects a month
+  // the user has actually saved, not the seeded default template.
+  const hasInitialData = Object.keys(initialPlan).some(
+    (k) => !k.startsWith("meta:") && !k.startsWith("hidden:"),
+  );
+  // Flips true once the user edits anything this session, so the live bar shows
+  // up as soon as they start entering amounts for a fresh month.
+  const [edited, setEdited] = useState(false);
+
   // Monthly income (salary, side-jobs, etc.) is managed on the /income page and
   // summed here as the paycheck. Reload it whenever the month changes.
   const [incomeTotal, setIncomeTotal] = useState(0);
@@ -345,36 +378,57 @@ export default function BudgetSheet({
 
   // Switch months: flush the current month immediately (keepalive lets the PUT
   // finish after we navigate), then move to the new month's URL. The page
-  // re-renders this component with that month's data loaded server-side.
+  // re-renders this component with that month's data loaded server-side. Only
+  // flush when the month has real data or was edited, so merely browsing past
+  // months never saves the seeded default template.
   function goToMonth(delta: number) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveBudgetPlan(month, flatten(values, customRows, hidden)).catch(() => {});
+    if (hasInitialData || edited) {
+      saveBudgetPlan(month, flatten(values, customRows, hidden)).catch(() => {});
+    }
     router.push(`/budget?month=${addMonths(month, delta)}`);
   }
 
   function setAmount(sectionId: string, rowId: string, value: string) {
+    setEdited(true);
     setValues((prev) => ({
       ...prev,
       [sectionId]: { ...(prev[sectionId] ?? {}), [rowId]: value },
     }));
   }
 
-  // Add a blank custom row to a section; the user fills in its labels/amount
-  // inline and every change is persisted.
-  function addRow(sectionId: string) {
+  // Add a custom row to a section from the "Add row" modal. The user fills in
+  // its labels/amount in the modal; every change is persisted.
+  function addRow(
+    sectionId: string,
+    data: { type: string; category: string; amount: string; due: string },
+  ) {
+    setEdited(true);
     const id = `custom-${crypto.randomUUID().slice(0, 8)}`;
     setCustomRows((prev) => ({
       ...prev,
       [sectionId]: [
         ...(prev[sectionId] ?? []),
-        { id, type: "", category: "", amount: "", due: "" },
+        {
+          id,
+          type: data.type,
+          category: data.category,
+          amount: data.amount,
+          due: data.due,
+        },
       ],
     }));
+    setValues((prev) => ({
+      ...prev,
+      [sectionId]: { ...(prev[sectionId] ?? {}), [id]: data.amount },
+    }));
+    setModalSection(null);
   }
 
   // Remove a row. Custom rows are dropped entirely; built-in rows are marked
   // hidden so they stay deleted across reloads. Either way its amount is cleared.
   function deleteRow(sectionId: string, rowId: string) {
+    setEdited(true);
     if (BUILTIN_IDS[sectionId]?.has(rowId)) {
       setHidden((prev) => {
         const next: Hidden = { ...prev, [sectionId]: new Set(prev[sectionId]) };
@@ -396,12 +450,115 @@ export default function BudgetSheet({
 
   // Edit a custom row's labels (type / category / due).
   function editRow(sectionId: string, rowId: string, patch: Partial<Row>) {
+    setEdited(true);
     setCustomRows((prev) => ({
       ...prev,
       [sectionId]: (prev[sectionId] ?? []).map((r) =>
         r.id === rowId ? { ...r, ...patch } : r,
       ),
     }));
+  }
+
+  // Open the modal pre-filled with a row's current values for editing.
+  function startEdit(
+    sectionId: string,
+    row: Row,
+    isBuiltin: boolean,
+    amount: string,
+  ) {
+    setEditing({
+      sectionId,
+      rowId: row.id,
+      isBuiltin,
+      initial: {
+        type: row.type,
+        category: row.category,
+        amount,
+        due: row.due ?? "",
+      },
+    });
+  }
+
+  // Apply changes from the edit modal. Custom rows are updated in place. For a
+  // built-in row, changing only the amount updates it directly; changing a label
+  // converts it into a custom row (the original is hidden) so the edit persists.
+  function saveEdit(data: {
+    type: string;
+    category: string;
+    amount: string;
+    due: string;
+  }) {
+    if (!editing) return;
+    const { sectionId, rowId, isBuiltin } = editing;
+    setEdited(true);
+    if (isBuiltin) {
+      const meta = ROW_META[sectionId]?.[rowId];
+      const labelsChanged =
+        !meta ||
+        data.type !== (meta.type ?? "") ||
+        data.category !== (meta.category ?? "") ||
+        (data.due ?? "") !== (meta.due ?? "");
+      if (labelsChanged) {
+        const id = `custom-${crypto.randomUUID().slice(0, 8)}`;
+        setHidden((prev) => {
+          const next: Hidden = {
+            ...prev,
+            [sectionId]: new Set(prev[sectionId]),
+          };
+          next[sectionId].add(rowId);
+          return next;
+        });
+        setCustomRows((prev) => ({
+          ...prev,
+          [sectionId]: [
+            ...(prev[sectionId] ?? []),
+            {
+              id,
+              type: data.type,
+              category: data.category,
+              amount: data.amount,
+              due: data.due,
+            },
+          ],
+        }));
+        setValues((prev) => {
+          const next = { ...prev, [sectionId]: { ...(prev[sectionId] ?? {}) } };
+          delete next[sectionId][rowId];
+          next[sectionId][id] = data.amount;
+          return next;
+        });
+      } else {
+        setAmount(sectionId, rowId, data.amount);
+      }
+    } else {
+      editRow(sectionId, rowId, {
+        type: data.type,
+        category: data.category,
+        due: data.due,
+      });
+      setAmount(sectionId, rowId, data.amount);
+    }
+    setEditing(null);
+  }
+
+  // Shared modal config (labels/options) for a section, used by both the add and
+  // edit modals.
+  function sectionConfig(sectionId: string) {
+    if (sectionId === "variable") {
+      return {
+        title: "Variable Kosten",
+        amountLabel: "Soll (€)",
+        showDue: false,
+        categoryOptions: VARIABLE_CATEGORIES as string[] | undefined,
+      };
+    }
+    const s = SECTIONS.find((x) => x.id === sectionId);
+    return {
+      title: s?.title ?? "Row",
+      amountLabel: "Budget (€)",
+      showDue: s?.showDue ?? false,
+      categoryOptions: undefined as string[] | undefined,
+    };
   }
 
   // Total of a section's visible built-in rows plus any custom rows.
@@ -439,10 +596,11 @@ export default function BudgetSheet({
     { category: "Ratenzahlungen", amount: sectionTotal("raten", RATENZAHLUNGEN) },
   ];
 
-  // Six-month overall-expenses bar chart. The last bucket is the selected month,
-  // so override it with the live total as the user edits.
+  // Six-month overall-expenses bar chart. The last bucket is the selected month;
+  // override it with the live total only when the month has saved data or the
+  // user is editing it, so months never saved stay empty (no bar).
   const overview = initialOverview.map((bucket, i) =>
-    i === initialOverview.length - 1
+    i === initialOverview.length - 1 && (hasInitialData || edited)
       ? { ...bucket, total: overallExpenses }
       : bucket,
   );
@@ -600,10 +758,10 @@ export default function BudgetSheet({
           amounts={values[SECTIONS[0].id] ?? {}}
           custom={customRows[SECTIONS[0].id] ?? []}
           hidden={hidden[SECTIONS[0].id]}
-          onChange={setAmount}
-          onAddRow={addRow}
+          onAddRow={setModalSection}
           onDeleteRow={deleteRow}
           onEditRow={editRow}
+          onStartEdit={startEdit}
         />
 
         <VariableSection
@@ -612,10 +770,12 @@ export default function BudgetSheet({
           custom={customRows.variable ?? []}
           hidden={hidden.variable}
           total={variableTotal}
-          onChange={(rowId, value) => setAmount("variable", rowId, value)}
-          onAddRow={() => addRow("variable")}
+          onAddRow={() => setModalSection("variable")}
           onDeleteRow={(rowId) => deleteRow("variable", rowId)}
           onEditRow={(rowId, patch) => editRow("variable", rowId, patch)}
+          onStartEdit={(row, isBuiltin, amount) =>
+            startEdit("variable", row, isBuiltin, amount)
+          }
         />
 
         {SECTIONS.slice(1).map((section) => (
@@ -625,10 +785,10 @@ export default function BudgetSheet({
             amounts={values[section.id] ?? {}}
             custom={customRows[section.id] ?? []}
             hidden={hidden[section.id]}
-            onChange={setAmount}
-            onAddRow={addRow}
+            onAddRow={setModalSection}
             onDeleteRow={deleteRow}
             onEditRow={editRow}
+            onStartEdit={startEdit}
           />
         ))}
       </div>
@@ -640,6 +800,41 @@ export default function BudgetSheet({
           overview={overview}
         />
       </div>
+
+      {modalSection &&
+        (() => {
+          const cfg = sectionConfig(modalSection);
+          return (
+            <RowModal
+              title="Add row"
+              submitLabel="Add row"
+              sectionTitle={cfg.title}
+              amountLabel={cfg.amountLabel}
+              showDue={cfg.showDue}
+              categoryOptions={cfg.categoryOptions}
+              onClose={() => setModalSection(null)}
+              onSubmit={(data) => addRow(modalSection, data)}
+            />
+          );
+        })()}
+
+      {editing &&
+        (() => {
+          const cfg = sectionConfig(editing.sectionId);
+          return (
+            <RowModal
+              title="Edit row"
+              submitLabel="Save changes"
+              sectionTitle={cfg.title}
+              amountLabel={cfg.amountLabel}
+              showDue={cfg.showDue}
+              categoryOptions={cfg.categoryOptions}
+              initial={editing.initial}
+              onClose={() => setEditing(null)}
+              onSubmit={saveEdit}
+            />
+          );
+        })()}
     </main>
   );
 }
@@ -650,19 +845,24 @@ function CostSection({
   amounts,
   custom,
   hidden,
-  onChange,
   onAddRow,
   onDeleteRow,
   onEditRow,
+  onStartEdit,
 }: {
   section: Section;
   amounts: Record<string, string>;
   custom: Row[];
   hidden?: Set<string>;
-  onChange: (sectionId: string, rowId: string, value: string) => void;
   onAddRow: (sectionId: string) => void;
   onDeleteRow: (sectionId: string, rowId: string) => void;
   onEditRow: (sectionId: string, rowId: string, patch: Partial<Row>) => void;
+  onStartEdit: (
+    sectionId: string,
+    row: Row,
+    isBuiltin: boolean,
+    amount: string,
+  ) => void;
 }) {
   const builtinRows = section.rows.filter((r) => !hidden?.has(r.id));
   const total =
@@ -685,12 +885,19 @@ function CostSection({
         </div>
       </div>
 
-      <table className="w-full text-sm text-zinc-900">
+      <table className="w-full table-fixed text-sm text-zinc-900">
+        <colgroup>
+          <col />
+          <col />
+          <col className="w-32" />
+          {section.showDue && <col className="w-36" />}
+          <col className="w-24" />
+        </colgroup>
         <thead>
-          <tr className="bg-amber-900/90 text-xs font-medium uppercase tracking-wide text-amber-50">
+          <tr className="bg-[#f1e8d9] text-xs font-bold uppercase tracking-wide text-amber-900">
             <th className="px-5 py-2 text-left">Type</th>
             <th className="px-3 py-2 text-left">Category</th>
-            <th className="px-3 py-2 text-right">Budget</th>
+            <th className="px-3 py-2 text-center">Budget</th>
             {section.showDue && (
               <th className="px-5 py-2 text-left">Fälligkeitsdatum</th>
             )}
@@ -712,19 +919,11 @@ function CostSection({
           ) : (
             <>
               {builtinRows.map((r) => (
-                <tr key={r.id} className="hover:bg-amber-50">
+                <tr key={r.id} className="group hover:bg-amber-50">
                   <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
                   <td className="px-3 py-2 font-medium">{r.category}</td>
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="—"
-                      value={amounts[r.id] ?? ""}
-                      onChange={(e) => onChange(section.id, r.id, e.target.value)}
-                      className="w-24 rounded-md bg-transparent px-2 py-1 text-right text-sm text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
-                    />
+                  <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
+                    {displayAmount(amounts[r.id])}
                   </td>
                   {section.showDue && (
                     <td className="px-5 py-2 text-amber-900/70 tabular-nums">
@@ -732,15 +931,18 @@ function CostSection({
                     </td>
                   )}
                   <td className="px-3 py-2 text-right">
-                    <DeleteButton
-                      onClick={() => onDeleteRow(section.id, r.id)}
-                      label={`Delete ${r.category || "row"}`}
+                    <RowActions
+                      onEdit={() =>
+                        onStartEdit(section.id, r, true, amounts[r.id] ?? "")
+                      }
+                      onDelete={() => onDeleteRow(section.id, r.id)}
+                      label={r.category || "row"}
                     />
                   </td>
                 </tr>
               ))}
               {custom.map((r) => (
-                <tr key={r.id} className="hover:bg-amber-50">
+                <tr key={r.id} className="group hover:bg-amber-50">
                   <td className="px-5 py-2">
                     <input
                       type="text"
@@ -763,16 +965,8 @@ function CostSection({
                       className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
                     />
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="—"
-                      value={amounts[r.id] ?? ""}
-                      onChange={(e) => onChange(section.id, r.id, e.target.value)}
-                      className="w-24 rounded-md bg-transparent px-2 py-1 text-right text-sm text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
-                    />
+                  <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
+                    {displayAmount(amounts[r.id])}
                   </td>
                   {section.showDue && (
                     <td className="px-5 py-2">
@@ -788,9 +982,12 @@ function CostSection({
                     </td>
                   )}
                   <td className="px-3 py-2 text-right">
-                    <DeleteButton
-                      onClick={() => onDeleteRow(section.id, r.id)}
-                      label={`Delete ${r.category || "row"}`}
+                    <RowActions
+                      onEdit={() =>
+                        onStartEdit(section.id, r, false, amounts[r.id] ?? "")
+                      }
+                      onDelete={() => onDeleteRow(section.id, r.id)}
+                      label={r.category || "row"}
                     />
                   </td>
                 </tr>
@@ -804,7 +1001,7 @@ function CostSection({
             <td className="px-5 py-3 font-semibold text-zinc-900" colSpan={2}>
               Total {section.title}
             </td>
-            <td className="px-3 py-3 text-right font-semibold tabular-nums text-emerald-700">
+            <td className="px-3 py-3 text-center font-semibold tabular-nums text-emerald-700">
               {currency.format(total)}
             </td>
             {section.showDue && <td />}
@@ -823,20 +1020,20 @@ function VariableSection({
   custom,
   hidden,
   total,
-  onChange,
   onAddRow,
   onDeleteRow,
   onEditRow,
+  onStartEdit,
 }: {
   rows: Row[];
   amounts: Record<string, string>;
   custom: Row[];
   hidden?: Set<string>;
   total: number;
-  onChange: (rowId: string, value: string) => void;
   onAddRow: () => void;
   onDeleteRow: (rowId: string) => void;
   onEditRow: (rowId: string, patch: Partial<Row>) => void;
+  onStartEdit: (row: Row, isBuiltin: boolean, amount: string) => void;
 }) {
   const builtinRows = rows.filter((r) => !hidden?.has(r.id));
   const itemCount = builtinRows.length + custom.length;
@@ -853,13 +1050,20 @@ function VariableSection({
         </div>
       </div>
 
-      <table className="w-full text-sm text-zinc-900">
+      <table className="w-full table-fixed text-sm text-zinc-900">
+        <colgroup>
+          <col />
+          <col />
+          <col className="w-32" />
+          <col className="w-20" />
+          <col className="w-24" />
+        </colgroup>
         <thead>
-          <tr className="bg-amber-900/90 text-xs font-medium uppercase tracking-wide text-amber-50">
+          <tr className="bg-[#f1e8d9] text-xs font-bold uppercase tracking-wide text-amber-900">
             <th className="px-5 py-2 text-left">Type</th>
             <th className="px-3 py-2 text-left">Category</th>
-            <th className="px-3 py-2 text-right">Soll</th>
-            <th className="px-5 py-2 text-right">Ist</th>
+            <th className="px-3 py-2 text-center">Soll</th>
+            <th className="px-5 py-2 text-center">Ist</th>
             <th className="px-3 py-2">
               <span className="sr-only">Actions</span>
             </th>
@@ -867,31 +1071,24 @@ function VariableSection({
         </thead>
         <tbody className="divide-y divide-amber-900/10">
           {builtinRows.map((r) => (
-            <tr key={r.id} className="hover:bg-amber-50">
+            <tr key={r.id} className="group hover:bg-amber-50">
               <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
               <td className="px-3 py-2 font-medium">{r.category}</td>
-              <td className="px-3 py-2 text-right">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="—"
-                  value={amounts[r.id] ?? ""}
-                  onChange={(e) => onChange(r.id, e.target.value)}
-                  className="w-24 rounded-md bg-transparent px-2 py-1 text-right text-sm text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
-                />
+              <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
+                {displayAmount(amounts[r.id])}
               </td>
-              <td className="px-5 py-2 text-right text-amber-900/50">—</td>
+              <td className="px-5 py-2 text-center text-amber-900/50">—</td>
               <td className="px-3 py-2 text-right">
-                <DeleteButton
-                  onClick={() => onDeleteRow(r.id)}
-                  label={`Delete ${r.category || "row"}`}
+                <RowActions
+                  onEdit={() => onStartEdit(r, true, amounts[r.id] ?? "")}
+                  onDelete={() => onDeleteRow(r.id)}
+                  label={r.category || "row"}
                 />
               </td>
             </tr>
           ))}
           {custom.map((r) => (
-            <tr key={r.id} className="hover:bg-amber-50">
+            <tr key={r.id} className="group hover:bg-amber-50">
               <td className="px-5 py-2">
                 <input
                   type="text"
@@ -910,22 +1107,15 @@ function VariableSection({
                   className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
                 />
               </td>
-              <td className="px-3 py-2 text-right">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="—"
-                  value={amounts[r.id] ?? ""}
-                  onChange={(e) => onChange(r.id, e.target.value)}
-                  className="w-24 rounded-md bg-transparent px-2 py-1 text-right text-sm text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
-                />
+              <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
+                {displayAmount(amounts[r.id])}
               </td>
-              <td className="px-5 py-2 text-right text-amber-900/50">—</td>
+              <td className="px-5 py-2 text-center text-amber-900/50">—</td>
               <td className="px-3 py-2 text-right">
-                <DeleteButton
-                  onClick={() => onDeleteRow(r.id)}
-                  label={`Delete ${r.category || "row"}`}
+                <RowActions
+                  onEdit={() => onStartEdit(r, false, amounts[r.id] ?? "")}
+                  onDelete={() => onDeleteRow(r.id)}
+                  label={r.category || "row"}
                 />
               </td>
             </tr>
@@ -937,7 +1127,7 @@ function VariableSection({
             <td className="px-5 py-3 font-semibold text-zinc-900" colSpan={2}>
               Total Variable Kosten
             </td>
-            <td className="px-3 py-3 text-right font-semibold tabular-nums text-emerald-700">
+            <td className="px-3 py-3 text-center font-semibold tabular-nums text-emerald-700">
               {currency.format(total)}
             </td>
             <td />
@@ -946,6 +1136,206 @@ function VariableSection({
         </tfoot>
       </table>
     </section>
+  );
+}
+
+// Modal dialog for adding or editing a row. The Category field renders as a
+// dropdown when `categoryOptions` is provided (Variable Kosten) and as a plain
+// text field otherwise (budget sheet sections). The due-date field only shows for
+// sections that track a Fälligkeitsdatum. Pass `initial` to pre-fill for editing.
+function RowModal({
+  title,
+  submitLabel,
+  sectionTitle,
+  amountLabel,
+  showDue,
+  categoryOptions,
+  initial,
+  onClose,
+  onSubmit,
+}: {
+  title: string;
+  submitLabel: string;
+  sectionTitle: string;
+  amountLabel: string;
+  showDue: boolean;
+  categoryOptions?: string[];
+  initial?: { type: string; category: string; amount: string; due: string };
+  onClose: () => void;
+  onSubmit: (data: {
+    type: string;
+    category: string;
+    amount: string;
+    due: string;
+  }) => void;
+}) {
+  const [type, setType] = useState(initial?.type ?? "");
+  const [category, setCategory] = useState(initial?.category ?? "");
+  const [amount, setAmount] = useState(initial?.amount ?? "");
+  const [due, setDue] = useState(initial?.due ?? "");
+
+  // Close on Escape for quick keyboard dismissal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const canSubmit = type.trim() !== "" || category.trim() !== "";
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    onSubmit({
+      type: type.trim(),
+      category: category.trim(),
+      amount: amount.trim(),
+      due: due.trim(),
+    });
+  }
+
+  const fieldClass =
+    "w-full rounded-xl border border-amber-900/15 bg-amber-50/40 px-3.5 py-2.5 text-sm text-zinc-900 shadow-sm transition-colors placeholder:text-amber-900/30 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl bg-white p-7 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${title} · ${sectionTitle}`}
+      >
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h3 className="text-2xl font-bold tracking-tight text-zinc-900">
+              {title}
+            </h3>
+            <p className="mt-0.5 text-sm text-amber-900/60">{sectionTitle}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900"
+          >
+            <svg
+              width={20}
+              height={20}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-zinc-900">Type</span>
+              <input
+                type="text"
+                autoFocus
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                placeholder="e.g. Wohnen"
+                className={fieldClass}
+              />
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-zinc-900">Category</span>
+              {categoryOptions ? (
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className={fieldClass}
+                >
+                  <option value="">Select a category</option>
+                  {categoryOptions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="e.g. Miete"
+                  className={fieldClass}
+                />
+              )}
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-zinc-900">
+                {amountLabel}
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className={fieldClass}
+              />
+            </label>
+
+            {showDue && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-zinc-900">
+                  Due date
+                </span>
+                <input
+                  type="text"
+                  value={due}
+                  onChange={(e) => setDue(e.target.value)}
+                  placeholder="dd/mm/yyyy"
+                  className={fieldClass}
+                />
+              </label>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-r from-amber-900 to-amber-700 px-4 py-3 text-sm font-semibold text-amber-50 shadow-md shadow-amber-900/20 transition-all hover:from-amber-800 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {submitLabel}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -984,6 +1374,59 @@ function AddRow({
         </button>
       </td>
     </tr>
+  );
+}
+
+// Row action cluster (edit + delete), revealed when the row is hovered or
+// focused so the resting table stays clean.
+function RowActions({
+  onEdit,
+  onDelete,
+  label,
+}: {
+  onEdit: () => void;
+  onDelete: () => void;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+      <EditButton onClick={onEdit} label={`Edit ${label}`} />
+      <DeleteButton onClick={onDelete} label={`Delete ${label}`} />
+    </div>
+  );
+}
+
+// Small pencil-icon button used to open the edit modal for a row.
+function EditButton({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-amber-900/40 transition-colors hover:bg-amber-100 hover:text-amber-900"
+    >
+      <svg
+        width={16}
+        height={16}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </button>
   );
 }
 

@@ -19,3 +19,9 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Always reserve space for the vertical scrollbar so the layout doesn't shift
+   horizontally when the page height changes (e.g. deleting a budget row). */
+html {
+  scrollbar-gutter: stable;
+}

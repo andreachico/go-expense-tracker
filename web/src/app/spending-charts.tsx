@@ -22,11 +22,22 @@ const MONTH_FMT = new Intl.DateTimeFormat("en-US", { month: "short" });
 // One bar in the overview chart.
 export type OverviewBucket = { label: string; total: number };
 
-// Bucket actual expenses into the last 6 months ending with the current month.
-function expenseBuckets(expenses: Expense[]): OverviewBucket[] {
-  const now = new Date();
+// Bucket actual expenses into the six months ending with `anchorMonth`
+// ("YYYY-MM"), or the current month when no anchor is given. Months without any
+// matching expense stay at 0, so they render as an empty bar.
+function expenseBuckets(
+  expenses: Expense[],
+  anchorMonth?: string,
+): OverviewBucket[] {
+  const base = anchorMonth
+    ? new Date(
+        Number(anchorMonth.slice(0, 4)),
+        Number(anchorMonth.slice(5, 7)) - 1,
+        1,
+      )
+    : new Date();
   const months = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const d = new Date(base.getFullYear(), base.getMonth() - (5 - i), 1);
     return {
       key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
       label: MONTH_FMT.format(d),
@@ -254,15 +265,17 @@ export default function SpendingCharts({
   expenses,
   whereItWent,
   overview,
+  anchorMonth,
 }: {
   expenses: Expense[];
   whereItWent?: Segment[];
   overview?: OverviewBucket[];
+  anchorMonth?: string;
 }) {
   return (
     <div className="flex flex-col gap-6">
       <SpendingOverview
-        buckets={overview ?? expenseBuckets(expenses)}
+        buckets={overview ?? expenseBuckets(expenses, anchorMonth)}
         planned={overview != null}
       />
       <WhereItWent data={whereItWent ?? byCategory(expenses)} />
