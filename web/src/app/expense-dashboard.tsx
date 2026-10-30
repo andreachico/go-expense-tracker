@@ -168,6 +168,8 @@ export default function ExpenseDashboard({
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
+  // Whether the "Add expense" modal is open.
+  const [showAddModal, setShowAddModal] = useState(false);
   const [error, setError] = useState<string | null>(initialError ?? null);
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
@@ -237,6 +239,7 @@ export default function ExpenseDashboard({
       });
       setExpenses((prev) => [...prev, created]);
       setForm({ ...emptyForm, date: form.date }); // keep the date for quick entry
+      setShowAddModal(false);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to add expense");
@@ -421,11 +424,11 @@ export default function ExpenseDashboard({
         <div className="overflow-hidden rounded-xl border border-amber-900/20 bg-white shadow-sm">
           <table className="w-full text-sm text-zinc-900">
             <thead>
-              <tr className="bg-amber-900/90 text-xs font-medium uppercase tracking-wide text-amber-50">
+              <tr className="bg-[#f1e8d9] text-xs font-bold uppercase tracking-wide text-amber-900">
                 <th className="px-3 py-2 text-left">Category</th>
-                <th className="px-3 py-2 text-right">Soll</th>
-                <th className="px-3 py-2 text-right">Ist</th>
-                <th className="px-3 py-2 text-right">Remaining</th>
+                <th className="px-3 py-2 text-center">Soll</th>
+                <th className="px-3 py-2 text-center">Ist</th>
+                <th className="px-3 py-2 text-center">Remaining</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-amber-900/10">
@@ -442,7 +445,7 @@ export default function ExpenseDashboard({
                         {cat}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-center">
                       <input
                         type="number"
                         step="0.01"
@@ -450,18 +453,18 @@ export default function ExpenseDashboard({
                         placeholder="0"
                         value={monthBudgets[cat] ?? ""}
                         onChange={(e) => setBudget(cat, e.target.value)}
-                        className="w-20 rounded-md border border-amber-800/40 bg-white px-2 py-1 text-right text-sm text-zinc-900"
+                        className="w-20 rounded-md border border-amber-800/40 bg-white px-2 py-1 text-center text-sm text-zinc-900"
                       />
                     </td>
                     <td
-                      className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                      className={`px-3 py-2 text-center font-semibold tabular-nums ${
                         over ? "text-red-700" : "text-amber-900"
                       }`}
                     >
                       {currency.format(ist)}
                     </td>
                     <td
-                      className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                      className={`px-3 py-2 text-center font-semibold tabular-nums ${
                         remaining < 0 ? "text-red-700" : "text-amber-900"
                       }`}
                     >
@@ -508,11 +511,11 @@ export default function ExpenseDashboard({
           </div>
         </div>
 
-        <div className="flex items-center gap-4 border-b border-amber-900/10 bg-amber-50 px-5 py-2 text-xs font-medium uppercase tracking-wide text-amber-900/60">
+        <div className="flex items-center gap-4 border-b border-amber-900/10 bg-[#f1e8d9] px-5 py-2 text-xs font-bold uppercase tracking-wide text-amber-900">
           <span className="flex-1 min-w-0">Description</span>
           <span className="w-36 shrink-0">Category</span>
           <span className="w-28 shrink-0">Date</span>
-          <span className="w-28 shrink-0 text-right">Amount</span>
+          <span className="w-28 shrink-0 text-center">Amount</span>
           <span className="w-10 shrink-0" />
         </div>
 
@@ -540,7 +543,7 @@ export default function ExpenseDashboard({
               <span className="w-28 shrink-0 text-amber-900/70 tabular-nums">
                 {formatDate(e.date)}
               </span>
-              <span className="w-28 shrink-0 text-right font-semibold tabular-nums">
+              <span className="w-28 shrink-0 text-center font-semibold tabular-nums">
                 {currency.format(e.amount)}
               </span>
               <span className="w-10 shrink-0 text-right">
@@ -555,60 +558,29 @@ export default function ExpenseDashboard({
             </li>
           ))}
 
-          {/* Always-present empty row for adding the next expense inline. */}
-          <li className="border-t border-amber-200/60 bg-linear-to-r from-amber-50/60 to-amber-100/30 px-5 py-3 transition-colors hover:from-amber-100/60 hover:to-amber-100/40">
-            <form onSubmit={handleSubmit} className="flex items-center gap-4">
-              <input
-                type="text"
-                placeholder="Description"
-                value={form.description}
-                onChange={(e) =>
-                  setForm({ ...form, description: e.target.value })
-                }
-                className="min-w-0 flex-1 rounded-md border border-amber-800/40 bg-white px-2 py-1 text-sm text-zinc-900"
-              />
-              <select
-                required
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-                className="w-36 shrink-0 rounded-md border border-amber-800/40 bg-white px-2 py-1 text-sm text-zinc-900"
+          {/* Full-width row that opens the Add expense modal. */}
+          <li className="p-0">
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="flex w-full items-center gap-2 border-t border-amber-200/60 bg-linear-to-r from-amber-50/60 to-amber-100/30 px-5 py-3 text-left text-sm font-medium text-amber-900 transition-colors hover:from-amber-100/60 hover:to-amber-100/40"
+            >
+              <svg
+                width={16}
+                height={16}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
               >
-                <option value="" disabled>
-                  Category
-                </option>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="date"
-                required
-                value={form.date}
-                onChange={(e) => setForm({ ...form, date: e.target.value })}
-                className="w-28 shrink-0 rounded-md border border-amber-800/40 bg-white px-2 py-1 text-sm text-zinc-900"
-              />
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                required
-                placeholder="0.00"
-                value={form.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                className="w-28 shrink-0 rounded-md border border-amber-800/40 bg-white px-2 py-1 text-right text-sm text-zinc-900"
-              />
-              <span className="w-10 shrink-0 text-right">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="text-sm font-medium text-amber-700 hover:text-amber-900 disabled:opacity-50"
-                >
-                  {submitting ? "…" : "Add"}
-                </button>
-              </span>
-            </form>
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add expense
+            </button>
           </li>
         </ul>
 
@@ -627,8 +599,181 @@ export default function ExpenseDashboard({
       </div>
 
       <div className="w-full shrink-0 lg:w-[380px]">
-        <SpendingCharts expenses={expenses} />
+        <SpendingCharts expenses={expenses} anchorMonth={periodKey} />
       </div>
+
+      {showAddModal && (
+        <AddExpenseModal
+          form={form}
+          categories={CATEGORIES}
+          submitting={submitting}
+          onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+          onSubmit={handleSubmit}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
     </main>
+  );
+}
+
+// Modal dialog for adding a new expense. Mirrors the budget sheet's "Add row"
+// modal styling and keeps the Category dropdown choices. The parent owns the
+// form state so submit reuses the existing create logic.
+function AddExpenseModal({
+  form,
+  categories,
+  submitting,
+  onChange,
+  onSubmit,
+  onClose,
+}: {
+  form: typeof emptyForm;
+  categories: string[];
+  submitting: boolean;
+  onChange: (patch: Partial<typeof emptyForm>) => void;
+  onSubmit: (e: React.FormEvent) => void;
+  onClose: () => void;
+}) {
+  // Close on Escape for quick keyboard dismissal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const fieldClass =
+    "w-full rounded-xl border border-amber-900/15 bg-amber-50/40 px-3.5 py-2.5 text-sm text-zinc-900 shadow-sm transition-colors placeholder:text-amber-900/30 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl bg-white p-7 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add expense"
+      >
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h3 className="text-2xl font-bold tracking-tight text-zinc-900">
+              Add expense
+            </h3>
+            <p className="mt-0.5 text-sm text-amber-900/60">Variable Expenses</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900"
+          >
+            <svg
+              width={20}
+              height={20}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={onSubmit}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5 sm:col-span-2">
+              <span className="text-sm font-medium text-zinc-900">
+                Description
+              </span>
+              <input
+                type="text"
+                autoFocus
+                value={form.description}
+                onChange={(e) => onChange({ description: e.target.value })}
+                placeholder="e.g. Weekly groceries"
+                className={fieldClass}
+              />
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-zinc-900">Category</span>
+              <select
+                required
+                value={form.category}
+                onChange={(e) => onChange({ category: e.target.value })}
+                className={fieldClass}
+              >
+                <option value="" disabled>
+                  Select a category
+                </option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-zinc-900">
+                Amount (€)
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+                value={form.amount}
+                onChange={(e) => onChange({ amount: e.target.value })}
+                placeholder="0.00"
+                className={fieldClass}
+              />
+            </label>
+
+            <label className="flex flex-col gap-1.5 sm:col-span-2">
+              <span className="text-sm font-medium text-zinc-900">Date</span>
+              <input
+                type="date"
+                required
+                value={form.date}
+                onChange={(e) => onChange({ date: e.target.value })}
+                className={fieldClass}
+              />
+            </label>
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-r from-amber-900 to-amber-700 px-4 py-3 text-sm font-semibold text-amber-50 shadow-md shadow-amber-900/20 transition-all hover:from-amber-800 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {submitting ? "Adding…" : "Add expense"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
