@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { BudgetPlan, Expense } from "@/lib/types";
@@ -54,12 +55,14 @@ type Row = {
   due?: string;
 };
 
-// Section definitions. Every section shares the Type / Category / Budget columns;
-// those with `showDue` also render a Fälligkeitsdatum column.
+// Section definitions. Every section shares the Category / Budget columns; those
+// with `showDue` also render a Fälligkeitsdatum column, and `showType` (default
+// on) controls the Type column.
 type Section = {
   id: string;
   title: string;
   showDue: boolean;
+  showType?: boolean;
   rows: Row[];
 };
 
@@ -131,6 +134,13 @@ const SECTIONS: Section[] = [
   { id: "others", title: "Others", showDue: false, rows: [] },
 ];
 
+// The built-in tables every user starts with. Fixkosten and Others live in
+// SECTIONS above; Variable Kosten is rendered separately but is also a default.
+// Every other built-in section (Investments, Savings, …) is NOT a default: it
+// only appears for accounts that already have data in it, so new users begin
+// with just these three and add their own tables as they like.
+const DEFAULT_SECTION_IDS = new Set(["fix", "others"]);
+
 // Variable Kosten has its own Soll / Ist layout, kept separate from the
 // Type / Category / Budget sections above.
 const VARIABLE_KOSTEN: Row[] = [
@@ -140,24 +150,67 @@ const VARIABLE_KOSTEN: Row[] = [
   { id: "leisure", type: "Leisure", category: "Freizeit/Allowance", amount: "110.00" },
 ];
 
-// Category options for the Variable Kosten "Add row" modal dropdown, derived
-// from the built-in rows so they stay in sync.
-const VARIABLE_CATEGORIES = Array.from(
-  new Set(VARIABLE_KOSTEN.map((r) => r.category)),
-);
-
 // Each table keeps its own Type choices. They start empty for every user and are
 // added per section, persisted to localStorage as { [sectionId]: string[] }.
 const TYPE_OPTIONS_KEY = "budget-type-options-v3";
-// Sentinel option value used by the Type dropdown to reveal the "add new" input.
-const ADD_NEW_TYPE = "__add_new_type__";
+
+// User-created tables (sections). Persisted to the backend plan under a
+// "table:<id>" key so they sync across devices (per month, like custom rows).
+type CustomTable = {
+  id: string;
+  title: string;
+  showDue: boolean;
+  showType: boolean;
+};
+
+// Decode custom tables from a backend plan's "table:<id>" markers.
+function extractTables(plan: BudgetPlan): CustomTable[] {
+  const tables: CustomTable[] = [];
+  for (const key of Object.keys(plan)) {
+    if (!key.startsWith("table:")) continue;
+    const id = key.slice("table:".length);
+    const entry = plan[key];
+    tables.push({
+      id,
+      title: entry.category,
+      showDue: entry.type === "due",
+      // Tables saved before this flag existed have no marker -> keep the column.
+      showType: entry.due !== "notype",
+    });
+  }
+  return tables;
+}
+
+// Edits a user has made to a BUILT-IN section: a renamed title and/or toggled
+// Type / Due columns. Persisted under an "override:<id>" plan key (like tables)
+// so the change syncs across devices, per month.
+type SectionOverride = { title: string; showDue: boolean; showType: boolean };
+
+// Decode built-in section overrides from a backend plan's "override:<id>" markers.
+function extractOverrides(plan: BudgetPlan): Record<string, SectionOverride> {
+  const out: Record<string, SectionOverride> = {};
+  for (const key of Object.keys(plan)) {
+    if (!key.startsWith("override:")) continue;
+    const id = key.slice("override:".length);
+    const entry = plan[key];
+    out[id] = {
+      title: entry.category,
+      showDue: entry.type === "due",
+      showType: entry.due !== "notype",
+    };
+  }
+  return out;
+}
 
 // Editable amounts keyed by section id then row id.
 type Values = Record<string, Record<string, string>>;
 
 function seedValues(): Values {
   const seed: Values = {};
+  // Only the default sections are seeded, so a new account starts with just the
+  // defaults. Existing accounts still load their other sections from the plan.
   for (const section of SECTIONS) {
+    if (!DEFAULT_SECTION_IDS.has(section.id)) continue;
     seed[section.id] = Object.fromEntries(
       section.rows.map((r) => [r.id, r.amount]),
     );
@@ -200,7 +253,13 @@ function extractCustom(plan: BudgetPlan): CustomRows {
     if (idx === -1) continue;
     const section = key.slice(0, idx);
     const row = key.slice(idx + 1);
-    if (section === "meta" || section === "hidden") continue;
+    if (
+      section === "meta" ||
+      section === "hidden" ||
+      section === "table" ||
+      section === "override"
+    )
+      continue;
     if (BUILTIN_IDS[section]?.has(row)) continue;
     const entry = plan[key];
     (custom[section] ??= []).push({
@@ -242,6 +301,8 @@ function flatten(
   values: Values,
   customRows: CustomRows,
   hidden: Hidden,
+  customTables: CustomTable[],
+  sectionOverrides: Record<string, SectionOverride>,
 ): BudgetPlan {
   const plan: BudgetPlan = {};
   for (const section of Object.keys(values)) {
@@ -277,6 +338,25 @@ function flatten(
       plan[`hidden:${section}:${row}`] = { type: "", category: "", amount: 0 };
     }
   }
+  // Persist each custom table's definition so it survives reloads even when empty.
+  for (const t of customTables) {
+    plan[`table:${t.id}`] = {
+      type: t.showDue ? "due" : "",
+      category: t.title,
+      amount: 0,
+      due: t.showType ? "" : "notype",
+    };
+  }
+  // Persist edits to built-in sections (renamed title / toggled columns).
+  for (const id of Object.keys(sectionOverrides)) {
+    const o = sectionOverrides[id];
+    plan[`override:${id}`] = {
+      type: o.showDue ? "due" : "",
+      category: o.title,
+      amount: 0,
+      due: o.showType ? "" : "notype",
+    };
+  }
   return plan;
 }
 
@@ -286,6 +366,8 @@ function mergePlan(seed: Values, plan: BudgetPlan): Values {
   for (const key of Object.keys(seed)) merged[key] = { ...seed[key] };
   for (const key of Object.keys(plan)) {
     if (key.startsWith("hidden:")) continue;
+    if (key.startsWith("table:")) continue;
+    if (key.startsWith("override:")) continue;
     const idx = key.indexOf(":");
     if (idx === -1) continue;
     const section = key.slice(0, idx);
@@ -324,6 +406,14 @@ export default function BudgetSheet({
   );
   // Built-in rows the user has deleted, so they don't reappear from the seed.
   const [hidden, setHidden] = useState<Hidden>(() => extractHidden(initialPlan));
+  // User-created tables (sections), reconstructed from the loaded plan.
+  const [customTables, setCustomTables] = useState<CustomTable[]>(() =>
+    extractTables(initialPlan),
+  );
+  // Edits to built-in sections (renamed title / toggled columns), per section id.
+  const [sectionOverrides, setSectionOverrides] = useState<
+    Record<string, SectionOverride>
+  >(() => extractOverrides(initialPlan));
 
   // Personalizable Type choices, kept separately per table (section id). Each
   // section starts empty and is merged with the user's saved additions
@@ -363,6 +453,28 @@ export default function BudgetSheet({
     });
   }
 
+  // Type choices offered for a section's rows: every type the user added for this
+  // table, plus any type already in use on its rows (built-in or custom). This
+  // way a type added on one row is selectable in all rows of that same table.
+  function typesFor(sectionId: string): string[] {
+    const added = typeOptions[sectionId] ?? [];
+    const used: string[] = [];
+    const builtin =
+      sectionId === "variable"
+        ? VARIABLE_KOSTEN
+        : (SECTIONS.find((s) => s.id === sectionId)?.rows ?? []);
+    for (const r of builtin) {
+      if (hidden[sectionId]?.has(r.id)) continue;
+      if (r.type) used.push(r.type);
+    }
+    for (const r of customRows[sectionId] ?? []) {
+      if (r.type) used.push(r.type);
+    }
+    return Array.from(new Set([...added, ...used])).sort((a, b) =>
+      a.localeCompare(b),
+    );
+  }
+
   // Section id whose "Add row" modal is currently open (null = closed).
   const [modalSection, setModalSection] = useState<string | null>(null);
   // Row currently being edited via the modal (null = not editing).
@@ -372,12 +484,27 @@ export default function BudgetSheet({
     isBuiltin: boolean;
     initial: { type: string; category: string; amount: string; due: string };
   } | null>(null);
+  // Add/rename-table modal state (null = closed).
+  const [modalTable, setModalTable] = useState<
+    | { mode: "add" }
+    | { mode: "edit"; table: CustomTable }
+    | {
+        mode: "edit-builtin";
+        id: string;
+        current: { title: string; showDue: boolean; showType: boolean };
+      }
+    | null
+  >(null);
 
   // Whether this month already had a saved plan (any real entry, ignoring the
   // meta/hidden bookkeeping keys). Used so the overview bar only reflects a month
   // the user has actually saved, not the seeded default template.
   const hasInitialData = Object.keys(initialPlan).some(
-    (k) => !k.startsWith("meta:") && !k.startsWith("hidden:"),
+    (k) =>
+      !k.startsWith("meta:") &&
+      !k.startsWith("hidden:") &&
+      !k.startsWith("table:") &&
+      !k.startsWith("override:"),
   );
   // Flips true once the user edits anything this session, so the live bar shows
   // up as soon as they start entering amounts for a fresh month.
@@ -411,14 +538,17 @@ export default function BudgetSheet({
     }
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      saveBudgetPlan(month, flatten(values, customRows, hidden)).catch(() => {
+      saveBudgetPlan(
+        month,
+        flatten(values, customRows, hidden, customTables, sectionOverrides),
+      ).catch(() => {
         // Ignore transient save errors; the next edit retries.
       });
     }, 600);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [values, customRows, hidden, month]);
+  }, [values, customRows, hidden, customTables, sectionOverrides, month]);
 
   // Switch months: flush the current month immediately (keepalive lets the PUT
   // finish after we navigate), then move to the new month's URL. The page
@@ -428,7 +558,10 @@ export default function BudgetSheet({
   function goToMonth(delta: number) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     if (hasInitialData || edited) {
-      saveBudgetPlan(month, flatten(values, customRows, hidden)).catch(() => {});
+      saveBudgetPlan(
+        month,
+        flatten(values, customRows, hidden, customTables, sectionOverrides),
+      ).catch(() => {});
     }
     router.push(`/budget?month=${addMonths(month, delta)}`);
   }
@@ -585,6 +718,113 @@ export default function BudgetSheet({
     setEditing(null);
   }
 
+  // Create a new user table from the add-table modal.
+  function addTable(data: {
+    title: string;
+    showDue: boolean;
+    showType: boolean;
+  }) {
+    setEdited(true);
+    const id = `table-${crypto.randomUUID().slice(0, 8)}`;
+    setCustomTables((prev) => [
+      ...prev,
+      {
+        id,
+        title: data.title.trim() || "Untitled",
+        showDue: data.showDue,
+        showType: data.showType,
+      },
+    ]);
+    setModalTable(null);
+  }
+
+  // Delete a custom table and everything tied to it.
+  function deleteTable(id: string) {
+    setEdited(true);
+    setCustomTables((prev) => prev.filter((t) => t.id !== id));
+    setCustomRows((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setValues((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setTypeOptions((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  // Rename / toggle a custom table's columns from the edit-table modal.
+  function saveTable(
+    id: string,
+    data: { title: string; showDue: boolean; showType: boolean },
+  ) {
+    setEdited(true);
+    setCustomTables((prev) =>
+      prev.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              title: data.title.trim() || t.title,
+              showDue: data.showDue,
+              showType: data.showType,
+            }
+          : t,
+      ),
+    );
+    setModalTable(null);
+  }
+
+  // Rename / toggle columns on a BUILT-IN section via the same edit-table modal.
+  // The change is stored as an override and persisted under "override:<id>".
+  function saveSectionOverride(
+    id: string,
+    data: { title: string; showDue: boolean; showType: boolean },
+  ) {
+    setEdited(true);
+    setSectionOverrides((prev) => ({
+      ...prev,
+      [id]: {
+        title: data.title.trim() || prev[id]?.title || id,
+        showDue: data.showDue,
+        showType: data.showType,
+      },
+    }));
+    setModalTable(null);
+  }
+
+  // A built-in section with the user's override (if any) applied.
+  function effectiveSection(base: Section): Section {
+    const o = sectionOverrides[base.id];
+    if (!o) return base;
+    return {
+      ...base,
+      title: o.title,
+      showDue: o.showDue,
+      showType: o.showType,
+    };
+  }
+
+  // Open the edit-table modal for a built-in section, pre-filled with its
+  // effective title and column settings.
+  function editBuiltin(base: Section) {
+    const eff = effectiveSection(base);
+    setModalTable({
+      mode: "edit-builtin",
+      id: base.id,
+      current: {
+        title: eff.title,
+        showDue: eff.showDue,
+        showType: eff.showType !== false,
+      },
+    });
+  }
+
   // Shared modal config (labels/options) for a section, used by both the add and
   // edit modals.
   function sectionConfig(sectionId: string) {
@@ -593,17 +833,44 @@ export default function BudgetSheet({
         title: "Variable Kosten",
         amountLabel: "Soll (€)",
         showDue: false,
-        categoryOptions: VARIABLE_CATEGORIES as string[] | undefined,
+        showType: true,
       };
     }
     const s = SECTIONS.find((x) => x.id === sectionId);
+    if (s) {
+      const o = sectionOverrides[sectionId];
+      return {
+        title: o?.title ?? s.title,
+        amountLabel: "Budget (€)",
+        showDue: o?.showDue ?? s.showDue,
+        showType: o ? o.showType : s.showType !== false,
+      };
+    }
+    const t = customTables.find((x) => x.id === sectionId);
     return {
-      title: s?.title ?? "Row",
+      title: t?.title ?? "Row",
       amountLabel: "Budget (€)",
-      showDue: s?.showDue ?? false,
-      categoryOptions: undefined as string[] | undefined,
+      showDue: t?.showDue ?? false,
+      showType: t?.showType !== false,
     };
   }
+
+  // Non-default built-in sections (Investments, Savings, …) only show for
+  // accounts that already have data in them: an entry, a deleted-row marker, or
+  // an override in this month's loaded plan. New accounts therefore start with
+  // just the default tables.
+  const activeExtraSections = new Set(
+    SECTIONS.filter((s) => !DEFAULT_SECTION_IDS.has(s.id))
+      .map((s) => s.id)
+      .filter((id) =>
+        Object.keys(initialPlan).some(
+          (k) =>
+            k.startsWith(`${id}:`) ||
+            k.startsWith(`hidden:${id}:`) ||
+            k === `override:${id}`,
+        ),
+      ),
+  );
 
   // Total of a section's visible built-in rows plus any custom rows.
   const sectionTotal = (sectionId: string, builtinRows: Row[]) =>
@@ -625,6 +892,7 @@ export default function BudgetSheet({
   // is left of the paycheck after all planned costs.
   const overallExpenses =
     SECTIONS.reduce((total, s) => total + sectionTotal(s.id, s.rows), 0) +
+    customTables.reduce((total, t) => total + sectionTotal(t.id, []), 0) +
     variableTotal;
   const paycheck = incomeTotal;
   const rest = paycheck - overallExpenses;
@@ -798,15 +1066,17 @@ export default function BudgetSheet({
 
         {/* Fixkosten first, then Variable Kosten, then the remaining sections. */}
         <CostSection
-          section={SECTIONS[0]}
+          section={effectiveSection(SECTIONS[0])}
           amounts={values[SECTIONS[0].id] ?? {}}
           custom={customRows[SECTIONS[0].id] ?? []}
           hidden={hidden[SECTIONS[0].id]}
-          typeOptions={typeOptions[SECTIONS[0].id] ?? []}
+          typeOptions={typesFor(SECTIONS[0].id)}
           onAddRow={setModalSection}
           onDeleteRow={deleteRow}
           onEditRow={editRow}
           onStartEdit={startEdit}
+          onAddType={(v) => addTypeOption(SECTIONS[0].id, v)}
+          onEditTable={() => editBuiltin(SECTIONS[0])}
         />
 
         <VariableSection
@@ -822,22 +1092,79 @@ export default function BudgetSheet({
           onStartEdit={(row, isBuiltin, amount) =>
             startEdit("variable", row, isBuiltin, amount)
           }
+          onAddType={(v) => addTypeOption("variable", v)}
         />
 
-        {SECTIONS.slice(1).map((section) => (
+        {SECTIONS.slice(1)
+          .filter(
+            (section) =>
+              DEFAULT_SECTION_IDS.has(section.id) ||
+              activeExtraSections.has(section.id),
+          )
+          .map((section) => (
+            <CostSection
+              key={section.id}
+              section={effectiveSection(section)}
+              amounts={values[section.id] ?? {}}
+              custom={customRows[section.id] ?? []}
+              hidden={hidden[section.id]}
+              typeOptions={typesFor(section.id)}
+              onAddRow={setModalSection}
+              onDeleteRow={deleteRow}
+              onEditRow={editRow}
+              onStartEdit={startEdit}
+              onAddType={(v) => addTypeOption(section.id, v)}
+              onEditTable={() => editBuiltin(section)}
+            />
+          ))}
+
+        {/* User-created tables, each rendered like a built-in cost section. */}
+        {customTables.map((t) => (
           <CostSection
-            key={section.id}
-            section={section}
-            amounts={values[section.id] ?? {}}
-            custom={customRows[section.id] ?? []}
-            hidden={hidden[section.id]}
-            typeOptions={typeOptions[section.id] ?? []}
+            key={t.id}
+            section={{
+              id: t.id,
+              title: t.title,
+              showDue: t.showDue,
+              showType: t.showType,
+              rows: [],
+            }}
+            amounts={values[t.id] ?? {}}
+            custom={customRows[t.id] ?? []}
+            hidden={hidden[t.id]}
+            typeOptions={typesFor(t.id)}
             onAddRow={setModalSection}
             onDeleteRow={deleteRow}
             onEditRow={editRow}
             onStartEdit={startEdit}
+            onAddType={(v) => addTypeOption(t.id, v)}
+            onEditTable={() => setModalTable({ mode: "edit", table: t })}
+            onDeleteTable={() => deleteTable(t.id)}
           />
         ))}
+
+        {/* Add a brand-new personalizable table. */}
+        <button
+          type="button"
+          onClick={() => setModalTable({ mode: "add" })}
+          className="mb-8 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-900/20 bg-white/60 px-4 py-4 text-sm font-semibold text-amber-900 transition-colors hover:border-amber-600/50 hover:bg-amber-50"
+        >
+          <svg
+            width={18}
+            height={18}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Add table
+        </button>
       </div>
 
       <div className="w-full shrink-0 lg:w-[380px]">
@@ -858,8 +1185,8 @@ export default function BudgetSheet({
               sectionTitle={cfg.title}
               amountLabel={cfg.amountLabel}
               showDue={cfg.showDue}
-              categoryOptions={cfg.categoryOptions}
-              typeOptions={typeOptions[modalSection] ?? []}
+              showType={cfg.showType}
+              typeOptions={typesFor(modalSection)}
               onAddType={(t) => addTypeOption(modalSection, t)}
               onClose={() => setModalSection(null)}
               onSubmit={(data) => addRow(modalSection, data)}
@@ -877,8 +1204,8 @@ export default function BudgetSheet({
               sectionTitle={cfg.title}
               amountLabel={cfg.amountLabel}
               showDue={cfg.showDue}
-              categoryOptions={cfg.categoryOptions}
-              typeOptions={typeOptions[editing.sectionId] ?? []}
+              showType={cfg.showType}
+              typeOptions={typesFor(editing.sectionId)}
               onAddType={(t) => addTypeOption(editing.sectionId, t)}
               initial={editing.initial}
               onClose={() => setEditing(null)}
@@ -886,7 +1213,257 @@ export default function BudgetSheet({
             />
           );
         })()}
+
+      {modalTable && (
+        <TableModal
+          mode={modalTable.mode === "add" ? "add" : "edit"}
+          initial={
+            modalTable.mode === "edit"
+              ? modalTable.table
+              : modalTable.mode === "edit-builtin"
+                ? {
+                    id: modalTable.id,
+                    title: modalTable.current.title,
+                    showDue: modalTable.current.showDue,
+                    showType: modalTable.current.showType,
+                  }
+                : undefined
+          }
+          onClose={() => setModalTable(null)}
+          onSubmit={(data) =>
+            modalTable.mode === "edit"
+              ? saveTable(modalTable.table.id, data)
+              : modalTable.mode === "edit-builtin"
+                ? saveSectionOverride(modalTable.id, data)
+                : addTable(data)
+          }
+        />
+      )}
     </main>
+  );
+}
+
+// A modern, amber-themed dropdown with an optional inline "+ Add new…" action.
+// The popover is portaled to <body> with fixed positioning so it's never clipped
+// by a table/section that uses overflow-hidden. Used for Type/Category fields
+// both inside the row modal (variant "field") and inline table cells ("cell").
+function BudgetDropdown({
+  value,
+  options,
+  onChange,
+  onAddNew,
+  placeholder = "Select…",
+  addLabel = "+ Add new…",
+  ariaLabel,
+  variant = "field",
+}: {
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+  onAddNew?: (value: string) => void;
+  placeholder?: string;
+  addLabel?: string;
+  ariaLabel?: string;
+  variant?: "field" | "cell";
+}) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  function openMenu() {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setRect(r);
+    setOpen(true);
+    setAdding(false);
+  }
+  function closeMenu() {
+    setOpen(false);
+    setAdding(false);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (r) setRect(r);
+    };
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || popoverRef.current?.contains(t))
+        return;
+      closeMenu();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeMenu();
+    };
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function confirmAdd() {
+    const v = draft.trim();
+    if (!v) return;
+    onAddNew?.(v);
+    onChange(v);
+    setDraft("");
+    closeMenu();
+  }
+
+  const triggerClass =
+    variant === "field"
+      ? "flex w-full items-center justify-between gap-2 rounded-xl border border-amber-900/15 bg-amber-50/40 px-3.5 py-2.5 text-sm shadow-sm transition-colors hover:border-amber-600/40 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+      : "flex w-full items-center justify-between gap-1 rounded-md border border-amber-900/15 bg-amber-50/50 px-2 py-1 text-sm transition-colors hover:border-amber-600/40 hover:bg-amber-50 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20";
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => (open ? closeMenu() : openMenu())}
+        className={triggerClass}
+      >
+        <span
+          className={`truncate ${value ? "text-zinc-900" : "text-amber-900/40"}`}
+        >
+          {value || placeholder}
+        </span>
+        <svg
+          width={16}
+          height={16}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`shrink-0 text-amber-900/50 transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            role="listbox"
+            style={{
+              position: "fixed",
+              top: rect.bottom + 4,
+              left: rect.left,
+              width: Math.max(rect.width, 180),
+            }}
+            className="z-60 max-h-64 overflow-auto rounded-2xl border border-amber-900/15 bg-white p-1.5 shadow-xl shadow-amber-900/10"
+          >
+            {options.length === 0 && !onAddNew && (
+              <p className="px-3 py-2 text-sm text-amber-900/40">No options</p>
+            )}
+            {options.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  closeMenu();
+                }}
+                className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                  opt === value
+                    ? "bg-linear-to-br from-amber-800 to-amber-600 font-semibold text-amber-50 shadow-sm shadow-amber-900/20"
+                    : "text-zinc-800 hover:bg-amber-50"
+                }`}
+              >
+                <span className="truncate">{opt}</span>
+                {opt === value && (
+                  <svg
+                    width={16}
+                    height={16}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </button>
+            ))}
+            {onAddNew && (
+              <div className="mt-1 border-t border-amber-900/10 pt-1">
+                {adding ? (
+                  <div className="flex items-center gap-1.5 p-1">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          confirmAdd();
+                        }
+                      }}
+                      placeholder="New name"
+                      className="w-full rounded-lg border border-amber-900/15 bg-amber-50/40 px-2.5 py-1.5 text-sm text-zinc-900 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={confirmAdd}
+                      className="shrink-0 rounded-lg bg-amber-900 px-2.5 py-1.5 text-sm font-semibold text-amber-50 transition-colors hover:bg-amber-800"
+                    >
+                      Add
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdding(true);
+                      setDraft("");
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-amber-800 transition-colors hover:bg-amber-50"
+                  >
+                    <svg
+                      width={16}
+                      height={16}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    {addLabel}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -901,6 +1478,9 @@ function CostSection({
   onDeleteRow,
   onEditRow,
   onStartEdit,
+  onAddType,
+  onEditTable,
+  onDeleteTable,
 }: {
   section: Section;
   amounts: Record<string, string>;
@@ -916,13 +1496,18 @@ function CostSection({
     isBuiltin: boolean,
     amount: string,
   ) => void;
+  onAddType: (value: string) => void;
+  onEditTable?: () => void;
+  onDeleteTable?: () => void;
 }) {
   const builtinRows = section.rows.filter((r) => !hidden?.has(r.id));
   const total =
     sumSection(builtinRows, amounts) +
     custom.reduce((t, r) => t + Number(amounts[r.id] || 0), 0);
   const itemCount = builtinRows.length + custom.length;
-  const colCount = (section.showDue ? 4 : 3) + 1; // + actions column
+  const showType = section.showType !== false;
+  // Category + Budget, plus optional Type/Due columns, plus the actions column.
+  const colCount = 2 + (showType ? 1 : 0) + (section.showDue ? 1 : 0) + 1;
 
   return (
     <section className="mb-8 overflow-hidden rounded-xl border border-amber-900/20 bg-white shadow-sm">
@@ -933,14 +1518,68 @@ function CostSection({
           </h2>
           <p className="text-sm text-amber-900/60">{itemCount} items</p>
         </div>
-        <div className="text-2xl font-semibold tabular-nums text-zinc-900">
-          {currency.format(total)}
+        <div className="flex items-center gap-3">
+          <div className="text-2xl font-semibold tabular-nums text-zinc-900">
+            {currency.format(total)}
+          </div>
+          {(onEditTable || onDeleteTable) && (
+            <div className="flex items-center gap-2">
+              {onEditTable && (
+                <button
+                  type="button"
+                  onClick={() => onEditTable()}
+                  aria-label={`Edit ${section.title}`}
+                  title={`Edit ${section.title}`}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-600/30 bg-amber-50 text-amber-900 transition-colors hover:border-amber-600/60 hover:bg-amber-100"
+                >
+                  <svg
+                    width={15}
+                    height={15}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+              )}
+              {onDeleteTable && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteTable()}
+                  aria-label={`Delete ${section.title}`}
+                  title={`Delete ${section.title}`}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition-colors hover:border-red-300 hover:bg-red-100"
+                >
+                  <svg
+                    width={15}
+                    height={15}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       <table className="w-full table-fixed text-sm text-zinc-900">
         <colgroup>
-          <col />
+          {showType && <col />}
           <col />
           <col className="w-32" />
           {section.showDue && <col className="w-36" />}
@@ -948,7 +1587,7 @@ function CostSection({
         </colgroup>
         <thead>
           <tr className="bg-[#f1e8d9] text-xs font-bold uppercase tracking-wide text-amber-900">
-            <th className="px-5 py-2 text-left">Type</th>
+            {showType && <th className="px-5 py-2 text-left">Type</th>}
             <th className="px-3 py-2 text-left">Category</th>
             <th className="px-3 py-2 text-center">Budget</th>
             {section.showDue && (
@@ -973,7 +1612,9 @@ function CostSection({
             <>
               {builtinRows.map((r) => (
                 <tr key={r.id} className="group hover:bg-amber-50">
-                  <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
+                  {showType && (
+                    <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
+                  )}
                   <td className="px-3 py-2 font-medium">{r.category}</td>
                   <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
                     {displayAmount(amounts[r.id])}
@@ -996,36 +1637,35 @@ function CostSection({
               ))}
               {custom.map((r) => (
                 <tr key={r.id} className="group hover:bg-amber-50">
-                  <td className="px-5 py-2">
-                    {r.type ? (
-                      <span className="block px-2 py-1 text-sm text-amber-900/70">
-                        {r.type}
-                      </span>
-                    ) : (
-                      <select
+                  {showType && (
+                    <td className="px-5 py-2">
+                      <BudgetDropdown
+                        variant="cell"
                         value={r.type}
-                        onChange={(e) =>
-                          onEditRow(section.id, r.id, { type: e.target.value })
+                        options={
+                          typeOptions.includes(r.type) || !r.type
+                            ? typeOptions
+                            : [r.type, ...typeOptions]
                         }
-                        className="w-full cursor-pointer rounded-md border border-amber-900/15 bg-amber-50/50 px-2 py-1 text-sm text-amber-900/80 transition-colors hover:border-amber-600/40 hover:bg-amber-50 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20"
-                      >
-                        <option value="">Type</option>
-                        {typeOptions.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </td>
+                        onChange={(v) =>
+                          onEditRow(section.id, r.id, { type: v })
+                        }
+                        onAddNew={onAddType}
+                        placeholder="Type"
+                        addLabel="+ Add new type…"
+                        ariaLabel="Type"
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-2">
                     <input
                       type="text"
-                      placeholder="Category"
                       value={r.category}
                       onChange={(e) =>
                         onEditRow(section.id, r.id, { category: e.target.value })
                       }
+                      placeholder="Category"
+                      aria-label="Category"
                       className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
                     />
                   </td>
@@ -1062,7 +1702,10 @@ function CostSection({
         </tbody>
         <tfoot>
           <tr className="border-t border-amber-900/10 bg-amber-50">
-            <td className="px-5 py-3 font-semibold text-zinc-900" colSpan={2}>
+            <td
+              className="px-5 py-3 font-semibold text-zinc-900"
+              colSpan={showType ? 2 : 1}
+            >
               Total {section.title}
             </td>
             <td className="px-3 py-3 text-center font-semibold tabular-nums text-emerald-700">
@@ -1089,6 +1732,7 @@ function VariableSection({
   onDeleteRow,
   onEditRow,
   onStartEdit,
+  onAddType,
 }: {
   rows: Row[];
   amounts: Record<string, string>;
@@ -1100,6 +1744,7 @@ function VariableSection({
   onDeleteRow: (rowId: string) => void;
   onEditRow: (rowId: string, patch: Partial<Row>) => void;
   onStartEdit: (row: Row, isBuiltin: boolean, amount: string) => void;
+  onAddType: (value: string) => void;
 }) {
   const builtinRows = rows.filter((r) => !hidden?.has(r.id));
   const itemCount = builtinRows.length + custom.length;
@@ -1156,31 +1801,28 @@ function VariableSection({
           {custom.map((r) => (
             <tr key={r.id} className="group hover:bg-amber-50">
               <td className="px-5 py-2">
-                {r.type ? (
-                  <span className="block px-2 py-1 text-sm text-amber-900/70">
-                    {r.type}
-                  </span>
-                ) : (
-                  <select
-                    value={r.type}
-                    onChange={(e) => onEditRow(r.id, { type: e.target.value })}
-                    className="w-full cursor-pointer rounded-md border border-amber-900/15 bg-amber-50/50 px-2 py-1 text-sm text-amber-900/80 transition-colors hover:border-amber-600/40 hover:bg-amber-50 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20"
-                  >
-                    <option value="">Type</option>
-                    {typeOptions.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <BudgetDropdown
+                  variant="cell"
+                  value={r.type}
+                  options={
+                    typeOptions.includes(r.type) || !r.type
+                      ? typeOptions
+                      : [r.type, ...typeOptions]
+                  }
+                  onChange={(v) => onEditRow(r.id, { type: v })}
+                  onAddNew={onAddType}
+                  placeholder="Type"
+                  addLabel="+ Add new type…"
+                  ariaLabel="Type"
+                />
               </td>
               <td className="px-3 py-2">
                 <input
                   type="text"
-                  placeholder="Category"
                   value={r.category}
                   onChange={(e) => onEditRow(r.id, { category: e.target.value })}
+                  placeholder="Category"
+                  aria-label="Category"
                   className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
                 />
               </td>
@@ -1216,17 +1858,17 @@ function VariableSection({
   );
 }
 
-// Modal dialog for adding or editing a row. The Category field renders as a
-// dropdown when `categoryOptions` is provided (Variable Kosten) and as a plain
-// text field otherwise (budget sheet sections). The due-date field only shows for
-// sections that track a Fälligkeitsdatum. Pass `initial` to pre-fill for editing.
+// Modal dialog for adding or editing a row. Type and Category use the modern
+// BudgetDropdown with per-table personalizable choices and an inline
+// "+ Add new…" action. The due-date field only shows for sections that track a
+// Fälligkeitsdatum. Pass `initial` to pre-fill for editing.
 function RowModal({
   title,
   submitLabel,
   sectionTitle,
   amountLabel,
   showDue,
-  categoryOptions,
+  showType,
   typeOptions,
   onAddType,
   initial,
@@ -1238,7 +1880,7 @@ function RowModal({
   sectionTitle: string;
   amountLabel: string;
   showDue: boolean;
-  categoryOptions?: string[];
+  showType: boolean;
   typeOptions: string[];
   onAddType: (type: string) => void;
   initial?: { type: string; category: string; amount: string; due: string };
@@ -1254,18 +1896,6 @@ function RowModal({
   const [category, setCategory] = useState(initial?.category ?? "");
   const [amount, setAmount] = useState(initial?.amount ?? "");
   const [due, setDue] = useState(initial?.due ?? "");
-  // When the user picks "+ Add new type…" we swap the dropdown for a text input.
-  const [addingType, setAddingType] = useState(false);
-  const [newType, setNewType] = useState("");
-
-  function confirmNewType() {
-    const t = newType.trim();
-    if (!t) return;
-    onAddType(t);
-    setType(t);
-    setAddingType(false);
-    setNewType("");
-  }
 
   // Close on Escape for quick keyboard dismissal.
   useEffect(() => {
@@ -1337,84 +1967,34 @@ function RowModal({
 
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-zinc-900">Type</span>
-              {addingType ? (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={newType}
-                    onChange={(e) => setNewType(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        confirmNewType();
-                      }
-                    }}
-                    placeholder="New type name"
-                    className={fieldClass}
-                  />
-                  <button
-                    type="button"
-                    onClick={confirmNewType}
-                    className="shrink-0 rounded-xl bg-amber-900 px-3.5 text-sm font-semibold text-amber-50 transition-colors hover:bg-amber-800"
-                  >
-                    Add
-                  </button>
-                </div>
-              ) : (
-                <select
-                  autoFocus
+            {showType && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-zinc-900">Type</span>
+                <BudgetDropdown
                   value={type}
-                  onChange={(e) => {
-                    if (e.target.value === ADD_NEW_TYPE) {
-                      setNewType("");
-                      setAddingType(true);
-                    } else {
-                      setType(e.target.value);
-                    }
-                  }}
-                  className={fieldClass}
-                >
-                  <option value="">Select a type</option>
-                  {(typeOptions.includes(type) || !type
-                    ? typeOptions
-                    : [type, ...typeOptions]
-                  ).map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                  <option value={ADD_NEW_TYPE}>+ Add new type…</option>
-                </select>
-              )}
-            </label>
+                  options={
+                    typeOptions.includes(type) || !type
+                      ? typeOptions
+                      : [type, ...typeOptions]
+                  }
+                  onChange={setType}
+                  onAddNew={onAddType}
+                  placeholder="Select a type"
+                  addLabel="+ Add new type…"
+                  ariaLabel="Type"
+                />
+              </label>
+            )}
 
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-zinc-900">Category</span>
-              {categoryOptions ? (
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className={fieldClass}
-                >
-                  <option value="">Select a category</option>
-                  {categoryOptions.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="e.g. Miete"
-                  className={fieldClass}
-                />
-              )}
+              <input
+                type="text"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="Category name"
+                className={fieldClass}
+              />
             </label>
 
             <label className="flex flex-col gap-1.5">
@@ -1467,6 +2047,186 @@ function RowModal({
               <polyline points="20 6 9 17 4 12" />
             </svg>
             {submitLabel}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Modal to create a new table or rename an existing one, with a toggle for the
+// optional Fälligkeitsdatum column.
+function TableModal({
+  mode,
+  initial,
+  onClose,
+  onSubmit,
+}: {
+  mode: "add" | "edit";
+  initial?: CustomTable;
+  onClose: () => void;
+  onSubmit: (data: {
+    title: string;
+    showDue: boolean;
+    showType: boolean;
+  }) => void;
+}) {
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [showDue, setShowDue] = useState(initial?.showDue ?? false);
+  const [showType, setShowType] = useState(initial?.showType ?? true);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const canSubmit = title.trim() !== "";
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    onSubmit({ title: title.trim(), showDue, showType });
+  }
+
+  const fieldClass =
+    "w-full rounded-xl border border-amber-900/15 bg-amber-50/40 px-3.5 py-2.5 text-sm text-zinc-900 shadow-sm transition-colors placeholder:text-amber-900/30 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-7 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={mode === "edit" ? "Edit table" : "Add table"}
+      >
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h3 className="text-2xl font-bold tracking-tight text-zinc-900">
+              {mode === "edit" ? "Edit table" : "Add table"}
+            </h3>
+            <p className="mt-0.5 text-sm text-amber-900/60">
+              {mode === "edit"
+                ? "Rename it or turn its columns on and off."
+                : "Name it and pick its columns."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900"
+          >
+            <svg
+              width={20}
+              height={20}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-zinc-900">Table name</span>
+            <input
+              type="text"
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Subscriptions"
+              className={fieldClass}
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => setShowType((v) => !v)}
+            className="flex items-center justify-between rounded-xl border border-amber-900/15 bg-amber-50/40 px-3.5 py-3 text-left transition-colors hover:border-amber-600/40"
+          >
+            <span>
+              <span className="block text-sm font-medium text-zinc-900">
+                Type column
+              </span>
+              <span className="block text-xs text-amber-900/60">
+                Show a Type column in this table.
+              </span>
+            </span>
+            <span
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                showType ? "bg-amber-700" : "bg-amber-900/20"
+              }`}
+              aria-hidden="true"
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  showType ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowDue((v) => !v)}
+            className="flex items-center justify-between rounded-xl border border-amber-900/15 bg-amber-50/40 px-3.5 py-3 text-left transition-colors hover:border-amber-600/40"
+          >
+            <span>
+              <span className="block text-sm font-medium text-zinc-900">
+                Due-date column
+              </span>
+              <span className="block text-xs text-amber-900/60">
+                Show a Fälligkeitsdatum column in this table.
+              </span>
+            </span>
+            <span
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                showDue ? "bg-amber-700" : "bg-amber-900/20"
+              }`}
+              aria-hidden="true"
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  showDue ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </span>
+          </button>
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-r from-amber-900 to-amber-700 px-4 py-3 text-sm font-semibold text-amber-50 shadow-md shadow-amber-900/20 transition-all hover:from-amber-800 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <svg
+              width={18}
+              height={18}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {mode === "edit" ? "Save changes" : "Add table"}
           </button>
         </form>
       </div>
