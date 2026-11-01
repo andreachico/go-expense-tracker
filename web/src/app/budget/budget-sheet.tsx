@@ -415,6 +415,12 @@ export default function BudgetSheet({
     Record<string, SectionOverride>
   >(() => extractOverrides(initialPlan));
 
+  // Non-default built-in sections the user deleted this session, so they are
+  // hidden immediately (their data is also cleared, so they stay gone on reload).
+  const [deletedSections, setDeletedSections] = useState<Set<string>>(
+    () => new Set(),
+  );
+
   // Personalizable Type choices, kept separately per table (section id). Each
   // section starts empty and is merged with the user's saved additions
   // (localStorage). Same initial value on server & client to avoid a hydration
@@ -759,7 +765,39 @@ export default function BudgetSheet({
     });
   }
 
-  // Rename / toggle a custom table's columns from the edit-table modal.
+  // Delete a non-default built-in section. Its data, hidden-row markers and any
+  // override are cleared so nothing persists, and it is hidden right away. The
+  // three default tables (Fixkosten, Variable Kosten, Other) are never deletable.
+  function deleteBuiltinSection(id: string) {
+    if (DEFAULT_SECTION_IDS.has(id)) return;
+    setEdited(true);
+    setDeletedSections((prev) => new Set(prev).add(id));
+    setCustomRows((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setValues((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setHidden((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setSectionOverrides((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setTypeOptions((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
   function saveTable(
     id: string,
     data: { title: string; showDue: boolean; showType: boolean },
@@ -1098,8 +1136,9 @@ export default function BudgetSheet({
         {SECTIONS.slice(1)
           .filter(
             (section) =>
-              DEFAULT_SECTION_IDS.has(section.id) ||
-              activeExtraSections.has(section.id),
+              !deletedSections.has(section.id) &&
+              (DEFAULT_SECTION_IDS.has(section.id) ||
+                activeExtraSections.has(section.id)),
           )
           .map((section) => (
             <CostSection
@@ -1115,6 +1154,11 @@ export default function BudgetSheet({
               onStartEdit={startEdit}
               onAddType={(v) => addTypeOption(section.id, v)}
               onEditTable={() => editBuiltin(section)}
+              onDeleteTable={
+                DEFAULT_SECTION_IDS.has(section.id)
+                  ? undefined
+                  : () => deleteBuiltinSection(section.id)
+              }
             />
           ))}
 
@@ -1467,6 +1511,134 @@ function BudgetDropdown({
   );
 }
 
+// Three-dots (kebab) menu for table-level actions (edit / delete). Opens a small
+// popover and closes on outside click or after an action is chosen.
+function TableMenu({
+  title,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", handle);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handle);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label={`Options for ${title}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Options"
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-amber-900/70 transition-all hover:bg-amber-900/5 hover:text-amber-900 ${
+          open ? "bg-amber-900/10 text-amber-900" : ""
+        }`}
+      >
+        <svg
+          width={18}
+          height={18}
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="5" r="1.7" />
+          <circle cx="12" cy="12" r="1.7" />
+          <circle cx="12" cy="19" r="1.7" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="animate-menu-pop absolute right-0 top-11 z-20 w-48 origin-top-right overflow-hidden rounded-2xl border border-amber-900/10 bg-white/95 p-1.5 shadow-xl shadow-amber-950/10 ring-1 ring-black/5 backdrop-blur-sm"
+        >
+          {onEdit && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onEdit();
+              }}
+              className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-amber-50"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100/70 text-amber-800 transition-colors group-hover:bg-amber-200/80">
+                <svg
+                  width={14}
+                  height={14}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </span>
+              Edit table
+            </button>
+          )}
+          {onEdit && onDelete && (
+            <div className="my-1 h-px bg-amber-900/10" />
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onDelete();
+              }}
+              className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-100/70 text-red-600 transition-colors group-hover:bg-red-200/80">
+                <svg
+                  width={14}
+                  height={14}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </span>
+              Delete table
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Reusable section for the Type / Category / Budget (+ optional due date) tables.
 function CostSection({
   section,
@@ -1523,56 +1695,11 @@ function CostSection({
             {currency.format(total)}
           </div>
           {(onEditTable || onDeleteTable) && (
-            <div className="flex items-center gap-2">
-              {onEditTable && (
-                <button
-                  type="button"
-                  onClick={() => onEditTable()}
-                  aria-label={`Edit ${section.title}`}
-                  title={`Edit ${section.title}`}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-600/30 bg-amber-50 text-amber-900 transition-colors hover:border-amber-600/60 hover:bg-amber-100"
-                >
-                  <svg
-                    width={15}
-                    height={15}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                  </svg>
-                </button>
-              )}
-              {onDeleteTable && (
-                <button
-                  type="button"
-                  onClick={() => onDeleteTable()}
-                  aria-label={`Delete ${section.title}`}
-                  title={`Delete ${section.title}`}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition-colors hover:border-red-300 hover:bg-red-100"
-                >
-                  <svg
-                    width={15}
-                    height={15}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  </svg>
-                </button>
-              )}
-            </div>
+            <TableMenu
+              title={section.title}
+              onEdit={onEditTable}
+              onDelete={onDeleteTable}
+            />
           )}
         </div>
       </div>
@@ -2249,7 +2376,7 @@ function AddRow({
         <button
           type="button"
           onClick={onClick}
-          className="flex w-full items-center gap-2 border-t border-amber-200/60 bg-linear-to-r from-amber-50/60 to-amber-100/30 px-5 py-3 text-left text-sm font-medium text-amber-900 transition-colors hover:from-amber-100/60 hover:to-amber-100/40"
+          className="flex w-full items-center justify-center gap-2 border-t border-dashed border-amber-200/70 px-5 py-2.5 text-sm font-medium text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900 focus-visible:bg-amber-50 focus-visible:text-amber-900 focus-visible:outline-none"
         >
           <svg
             width={16}

@@ -25,3 +25,19 @@ body {
 html {
   scrollbar-gutter: stable;
 }
+
+/* Subtle pop-in for dropdown menus / popovers. */
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-menu-pop {
+  animation: menu-pop 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
