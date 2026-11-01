@@ -72,6 +72,14 @@ export async function getBudgetBreakdown(): Promise<
   );
 }
 
+// getBudgetPlan loads a single month's saved budget plan (keyed "section:row").
+// Used client-side to read row labels, e.g. to match sinking-fund rows by name.
+export async function getBudgetPlan(month: string): Promise<BudgetPlan> {
+  return handle<BudgetPlan>(
+    await fetch(`/api/budget?month=${month}`, { cache: "no-store" }),
+  );
+}
+
 // --- Authentication ---
 //
 // The Go API sets an HttpOnly session cookie on register/login; the browser

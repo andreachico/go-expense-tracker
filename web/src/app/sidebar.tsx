@@ -52,6 +52,17 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/travel",
+    label: "Travel",
+    icon: (
+      <>
+        <rect x="3" y="7" width="18" height="13" rx="2" />
+        <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        <line x1="12" y1="11" x2="12" y2="16" />
+      </>
+    ),
+  },
+  {
     href: "/investments",
     label: "Investments",
     icon: (

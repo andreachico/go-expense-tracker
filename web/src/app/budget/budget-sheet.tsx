@@ -146,6 +146,12 @@ const VARIABLE_CATEGORIES = Array.from(
   new Set(VARIABLE_KOSTEN.map((r) => r.category)),
 );
 
+// Each table keeps its own Type choices. They start empty for every user and are
+// added per section, persisted to localStorage as { [sectionId]: string[] }.
+const TYPE_OPTIONS_KEY = "budget-type-options-v3";
+// Sentinel option value used by the Type dropdown to reveal the "add new" input.
+const ADD_NEW_TYPE = "__add_new_type__";
+
 // Editable amounts keyed by section id then row id.
 type Values = Record<string, Record<string, string>>;
 
@@ -318,6 +324,44 @@ export default function BudgetSheet({
   );
   // Built-in rows the user has deleted, so they don't reappear from the seed.
   const [hidden, setHidden] = useState<Hidden>(() => extractHidden(initialPlan));
+
+  // Personalizable Type choices, kept separately per table (section id). Each
+  // section starts empty and is merged with the user's saved additions
+  // (localStorage). Same initial value on server & client to avoid a hydration
+  // mismatch.
+  const [typeOptions, setTypeOptions] = useState<Record<string, string[]>>({});
+  const [typeOptionsLoaded, setTypeOptionsLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(TYPE_OPTIONS_KEY);
+      if (raw) {
+        const stored = JSON.parse(raw);
+        if (stored && typeof stored === "object" && !Array.isArray(stored)) {
+          setTypeOptions(stored as Record<string, string[]>);
+        }
+      }
+    } catch {
+      // Ignore malformed storage.
+    }
+    setTypeOptionsLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!typeOptionsLoaded) return;
+    localStorage.setItem(TYPE_OPTIONS_KEY, JSON.stringify(typeOptions));
+  }, [typeOptions, typeOptionsLoaded]);
+
+  function addTypeOption(sectionId: string, value: string) {
+    const t = value.trim();
+    if (!t) return;
+    setTypeOptions((prev) => {
+      const current = prev[sectionId] ?? [];
+      if (current.includes(t)) return prev;
+      return {
+        ...prev,
+        [sectionId]: [...current, t].sort((a, b) => a.localeCompare(b)),
+      };
+    });
+  }
 
   // Section id whose "Add row" modal is currently open (null = closed).
   const [modalSection, setModalSection] = useState<string | null>(null);
@@ -758,6 +802,7 @@ export default function BudgetSheet({
           amounts={values[SECTIONS[0].id] ?? {}}
           custom={customRows[SECTIONS[0].id] ?? []}
           hidden={hidden[SECTIONS[0].id]}
+          typeOptions={typeOptions[SECTIONS[0].id] ?? []}
           onAddRow={setModalSection}
           onDeleteRow={deleteRow}
           onEditRow={editRow}
@@ -770,6 +815,7 @@ export default function BudgetSheet({
           custom={customRows.variable ?? []}
           hidden={hidden.variable}
           total={variableTotal}
+          typeOptions={typeOptions.variable ?? []}
           onAddRow={() => setModalSection("variable")}
           onDeleteRow={(rowId) => deleteRow("variable", rowId)}
           onEditRow={(rowId, patch) => editRow("variable", rowId, patch)}
@@ -785,6 +831,7 @@ export default function BudgetSheet({
             amounts={values[section.id] ?? {}}
             custom={customRows[section.id] ?? []}
             hidden={hidden[section.id]}
+            typeOptions={typeOptions[section.id] ?? []}
             onAddRow={setModalSection}
             onDeleteRow={deleteRow}
             onEditRow={editRow}
@@ -812,6 +859,8 @@ export default function BudgetSheet({
               amountLabel={cfg.amountLabel}
               showDue={cfg.showDue}
               categoryOptions={cfg.categoryOptions}
+              typeOptions={typeOptions[modalSection] ?? []}
+              onAddType={(t) => addTypeOption(modalSection, t)}
               onClose={() => setModalSection(null)}
               onSubmit={(data) => addRow(modalSection, data)}
             />
@@ -829,6 +878,8 @@ export default function BudgetSheet({
               amountLabel={cfg.amountLabel}
               showDue={cfg.showDue}
               categoryOptions={cfg.categoryOptions}
+              typeOptions={typeOptions[editing.sectionId] ?? []}
+              onAddType={(t) => addTypeOption(editing.sectionId, t)}
               initial={editing.initial}
               onClose={() => setEditing(null)}
               onSubmit={saveEdit}
@@ -845,6 +896,7 @@ function CostSection({
   amounts,
   custom,
   hidden,
+  typeOptions,
   onAddRow,
   onDeleteRow,
   onEditRow,
@@ -854,6 +906,7 @@ function CostSection({
   amounts: Record<string, string>;
   custom: Row[];
   hidden?: Set<string>;
+  typeOptions: string[];
   onAddRow: (sectionId: string) => void;
   onDeleteRow: (sectionId: string, rowId: string) => void;
   onEditRow: (sectionId: string, rowId: string, patch: Partial<Row>) => void;
@@ -944,15 +997,26 @@ function CostSection({
               {custom.map((r) => (
                 <tr key={r.id} className="group hover:bg-amber-50">
                   <td className="px-5 py-2">
-                    <input
-                      type="text"
-                      placeholder="Type"
-                      value={r.type}
-                      onChange={(e) =>
-                        onEditRow(section.id, r.id, { type: e.target.value })
-                      }
-                      className="w-full rounded-md bg-transparent px-2 py-1 text-sm text-amber-900/70 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
-                    />
+                    {r.type ? (
+                      <span className="block px-2 py-1 text-sm text-amber-900/70">
+                        {r.type}
+                      </span>
+                    ) : (
+                      <select
+                        value={r.type}
+                        onChange={(e) =>
+                          onEditRow(section.id, r.id, { type: e.target.value })
+                        }
+                        className="w-full cursor-pointer rounded-md border border-amber-900/15 bg-amber-50/50 px-2 py-1 text-sm text-amber-900/80 transition-colors hover:border-amber-600/40 hover:bg-amber-50 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20"
+                      >
+                        <option value="">Type</option>
+                        {typeOptions.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <input
@@ -1020,6 +1084,7 @@ function VariableSection({
   custom,
   hidden,
   total,
+  typeOptions,
   onAddRow,
   onDeleteRow,
   onEditRow,
@@ -1030,6 +1095,7 @@ function VariableSection({
   custom: Row[];
   hidden?: Set<string>;
   total: number;
+  typeOptions: string[];
   onAddRow: () => void;
   onDeleteRow: (rowId: string) => void;
   onEditRow: (rowId: string, patch: Partial<Row>) => void;
@@ -1090,13 +1156,24 @@ function VariableSection({
           {custom.map((r) => (
             <tr key={r.id} className="group hover:bg-amber-50">
               <td className="px-5 py-2">
-                <input
-                  type="text"
-                  placeholder="Type"
-                  value={r.type}
-                  onChange={(e) => onEditRow(r.id, { type: e.target.value })}
-                  className="w-full rounded-md bg-transparent px-2 py-1 text-sm text-amber-900/70 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
-                />
+                {r.type ? (
+                  <span className="block px-2 py-1 text-sm text-amber-900/70">
+                    {r.type}
+                  </span>
+                ) : (
+                  <select
+                    value={r.type}
+                    onChange={(e) => onEditRow(r.id, { type: e.target.value })}
+                    className="w-full cursor-pointer rounded-md border border-amber-900/15 bg-amber-50/50 px-2 py-1 text-sm text-amber-900/80 transition-colors hover:border-amber-600/40 hover:bg-amber-50 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20"
+                  >
+                    <option value="">Type</option>
+                    {typeOptions.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </td>
               <td className="px-3 py-2">
                 <input
@@ -1150,6 +1227,8 @@ function RowModal({
   amountLabel,
   showDue,
   categoryOptions,
+  typeOptions,
+  onAddType,
   initial,
   onClose,
   onSubmit,
@@ -1160,6 +1239,8 @@ function RowModal({
   amountLabel: string;
   showDue: boolean;
   categoryOptions?: string[];
+  typeOptions: string[];
+  onAddType: (type: string) => void;
   initial?: { type: string; category: string; amount: string; due: string };
   onClose: () => void;
   onSubmit: (data: {
@@ -1173,6 +1254,18 @@ function RowModal({
   const [category, setCategory] = useState(initial?.category ?? "");
   const [amount, setAmount] = useState(initial?.amount ?? "");
   const [due, setDue] = useState(initial?.due ?? "");
+  // When the user picks "+ Add new type…" we swap the dropdown for a text input.
+  const [addingType, setAddingType] = useState(false);
+  const [newType, setNewType] = useState("");
+
+  function confirmNewType() {
+    const t = newType.trim();
+    if (!t) return;
+    onAddType(t);
+    setType(t);
+    setAddingType(false);
+    setNewType("");
+  }
 
   // Close on Escape for quick keyboard dismissal.
   useEffect(() => {
@@ -1246,14 +1339,56 @@ function RowModal({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-zinc-900">Type</span>
-              <input
-                type="text"
-                autoFocus
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                placeholder="e.g. Wohnen"
-                className={fieldClass}
-              />
+              {addingType ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        confirmNewType();
+                      }
+                    }}
+                    placeholder="New type name"
+                    className={fieldClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={confirmNewType}
+                    className="shrink-0 rounded-xl bg-amber-900 px-3.5 text-sm font-semibold text-amber-50 transition-colors hover:bg-amber-800"
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : (
+                <select
+                  autoFocus
+                  value={type}
+                  onChange={(e) => {
+                    if (e.target.value === ADD_NEW_TYPE) {
+                      setNewType("");
+                      setAddingType(true);
+                    } else {
+                      setType(e.target.value);
+                    }
+                  }}
+                  className={fieldClass}
+                >
+                  <option value="">Select a type</option>
+                  {(typeOptions.includes(type) || !type
+                    ? typeOptions
+                    : [type, ...typeOptions]
+                  ).map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                  <option value={ADD_NEW_TYPE}>+ Add new type…</option>
+                </select>
+              )}
             </label>
 
             <label className="flex flex-col gap-1.5">
