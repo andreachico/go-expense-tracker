@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Expense } from "@/lib/types";
 import { createExpense, deleteExpense } from "@/lib/api";
 import SpendingCharts from "./spending-charts";
+import BudgetDropdown from "./budget-dropdown";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -26,15 +27,18 @@ const MONTHS = [
 const monthKey = (year: number, month: number) =>
   `${year}-${String(month + 1).padStart(2, "0")}`;
 
-// Budgetable categories, shared by the expense form dropdown and the budget
-// table.
-const CATEGORIES = [
+// Default budgetable categories. Users can add their own via the expense form;
+// custom categories are persisted to localStorage and merged with these.
+const DEFAULT_CATEGORIES = [
   "Groceries",
   "Drogerie",
   "Restaurant/Food Order",
   "Freizeit",
   "Online Bestellung",
 ];
+
+// localStorage key for user-added categories.
+const CATEGORIES_STORAGE_KEY = "expense-tracker:categories";
 
 // Each category gets its own pastel badge color. Full class strings are used so
 // Tailwind's compiler can detect them.
@@ -137,7 +141,9 @@ function CategoryIcon({ category }: { category: string }) {
       );
   }
   return (
-    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+    <span
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${categoryColor(category)}`}
+    >
       {glyph}
     </span>
   );
@@ -186,6 +192,17 @@ export default function ExpenseDashboard({
   // save effect never writes the empty initial state over stored values.
   const [budgetsLoaded, setBudgetsLoaded] = useState(false);
 
+  // User-added categories, merged with DEFAULT_CATEGORIES to form the full list
+  // shown in the expense form dropdown and the budget table. Persisted to
+  // localStorage so custom categories survive a refresh.
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [categoriesLoaded, setCategoriesLoaded] = useState(false);
+  // Full category list: defaults first, then any custom ones (deduplicated).
+  const categories = [
+    ...DEFAULT_CATEGORIES,
+    ...customCategories.filter((c) => !DEFAULT_CATEGORIES.includes(c)),
+  ];
+
   // Load persisted budgets once on the client, after mount. Starting from {} on
   // both server and client keeps the initial render identical (no hydration
   // mismatch); the stored values are applied immediately afterward.
@@ -197,6 +214,17 @@ export default function ExpenseDashboard({
       // Ignore malformed/unavailable storage.
     }
     setBudgetsLoaded(true);
+  }, []);
+
+  // Load persisted custom categories once on the client, after mount.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(CATEGORIES_STORAGE_KEY);
+      if (stored) setCustomCategories(JSON.parse(stored));
+    } catch {
+      // Ignore malformed/unavailable storage.
+    }
+    setCategoriesLoaded(true);
   }, []);
 
   // Save budgets whenever they change so the values persist across refreshes.
@@ -211,6 +239,29 @@ export default function ExpenseDashboard({
       // Ignore storage errors (e.g. private mode / quota).
     }
   }, [budgets, budgetsLoaded]);
+
+  // Save custom categories whenever they change.
+  useEffect(() => {
+    if (!categoriesLoaded) return;
+    try {
+      window.localStorage.setItem(
+        CATEGORIES_STORAGE_KEY,
+        JSON.stringify(customCategories),
+      );
+    } catch {
+      // Ignore storage errors (e.g. private mode / quota).
+    }
+  }, [customCategories, categoriesLoaded]);
+
+  // Add a user-defined category from the expense form dropdown. Ignores blanks
+  // and anything already present (default or custom).
+  function addCategory(name: string) {
+    const v = name.trim();
+    if (!v || DEFAULT_CATEGORIES.includes(v) || customCategories.includes(v)) {
+      return;
+    }
+    setCustomCategories((prev) => [...prev, v]);
+  }
 
   // Changing the month/year both filters the list and sets the date new
   // expenses are saved under.
@@ -229,6 +280,10 @@ export default function ExpenseDashboard({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.category.trim()) {
+      setError("please select a category");
+      return;
+    }
     setSubmitting(true);
     try {
       const created = await createExpense({
@@ -281,7 +336,7 @@ export default function ExpenseDashboard({
 
   // Summary figures derived from the per-category budgets ("soll") and the
   // month's actual spending.
-  const monthlyBudget = CATEGORIES.reduce(
+  const monthlyBudget = categories.reduce(
     (sum, c) => sum + Number(monthBudgets[c] ?? 0),
     0,
   );
@@ -432,7 +487,7 @@ export default function ExpenseDashboard({
               </tr>
             </thead>
             <tbody className="divide-y divide-amber-900/10">
-              {CATEGORIES.map((cat) => {
+              {categories.map((cat) => {
                 const ist = istForCategory(cat);
                 const soll = Number(monthBudgets[cat] ?? "");
                 const over = soll > 0 && ist > soll;
@@ -446,15 +501,20 @@ export default function ExpenseDashboard({
                       </span>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        placeholder="0"
-                        value={monthBudgets[cat] ?? ""}
-                        onChange={(e) => setBudget(cat, e.target.value)}
-                        className="w-20 rounded-md border border-amber-800/40 bg-white px-2 py-1 text-center text-sm text-zinc-900"
-                      />
+                      <span className="inline-flex items-center justify-center gap-1">
+                        <span className="text-sm font-semibold text-amber-900/50">
+                          €
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="0"
+                          value={monthBudgets[cat] ?? ""}
+                          onChange={(e) => setBudget(cat, e.target.value)}
+                          className="min-w-[2ch] bg-transparent text-left text-sm font-semibold tabular-nums text-zinc-900 [appearance:textfield] [field-sizing:content] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        />
+                      </span>
                     </td>
                     <td
                       className={`px-3 py-2 text-center font-semibold tabular-nums ${
@@ -605,9 +665,10 @@ export default function ExpenseDashboard({
       {showAddModal && (
         <AddExpenseModal
           form={form}
-          categories={CATEGORIES}
+          categories={categories}
           submitting={submitting}
           onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+          onAddCategory={addCategory}
           onSubmit={handleSubmit}
           onClose={() => setShowAddModal(false)}
         />
@@ -624,6 +685,7 @@ function AddExpenseModal({
   categories,
   submitting,
   onChange,
+  onAddCategory,
   onSubmit,
   onClose,
 }: {
@@ -631,6 +693,7 @@ function AddExpenseModal({
   categories: string[];
   submitting: boolean;
   onChange: (patch: Partial<typeof emptyForm>) => void;
+  onAddCategory: (name: string) => void;
   onSubmit: (e: React.FormEvent) => void;
   onClose: () => void;
 }) {
@@ -707,21 +770,15 @@ function AddExpenseModal({
 
             <label className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-zinc-900">Category</span>
-              <select
-                required
+              <BudgetDropdown
                 value={form.category}
-                onChange={(e) => onChange({ category: e.target.value })}
-                className={fieldClass}
-              >
-                <option value="" disabled>
-                  Select a category
-                </option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+                options={categories}
+                onChange={(v) => onChange({ category: v })}
+                onAddNew={onAddCategory}
+                placeholder="Select a category"
+                addLabel="Add new category…"
+                ariaLabel="Category"
+              />
             </label>
 
             <label className="flex flex-col gap-1.5">
