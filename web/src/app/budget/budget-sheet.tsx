@@ -975,7 +975,7 @@ export default function BudgetSheet({
                 type="button"
                 onClick={() => goToMonth(-1)}
                 aria-label="Previous month"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
               >
                 <svg
                   width={18}
@@ -998,7 +998,7 @@ export default function BudgetSheet({
                 type="button"
                 onClick={() => goToMonth(1)}
                 aria-label="Next month"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
               >
                 <svg
                   width={18}
@@ -1046,7 +1046,7 @@ export default function BudgetSheet({
 
           <Link
             href="/income"
-            className="group block rounded-xl border border-amber-900/20 bg-white p-6 shadow-sm transition-colors hover:border-amber-700/40 hover:bg-amber-50/40"
+            className="group block rounded-xl border border-amber-900/20 bg-white p-6 shadow-sm transition-colors hover:border-amber-700/40 hover:bg-amber-900/5"
           >
             <div className="flex items-start justify-between">
               <span className="text-sm text-amber-900/70">Paycheck</span>
@@ -1191,7 +1191,7 @@ export default function BudgetSheet({
         <button
           type="button"
           onClick={() => setModalTable({ mode: "add" })}
-          className="mb-8 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-900/20 bg-white/60 px-4 py-4 text-sm font-semibold text-amber-900 transition-colors hover:border-amber-600/50 hover:bg-amber-50"
+          className="mb-8 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-900/20 bg-white/60 px-4 py-4 text-sm font-semibold text-amber-900 transition-colors hover:border-amber-600/50 hover:bg-amber-900/5"
         >
           <svg
             width={18}
@@ -1356,9 +1356,9 @@ function TableMenu({
                 setOpen(false);
                 onEdit();
               }}
-              className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-amber-50"
+              className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-zinc-700 transition-colors hover:bg-amber-900/5"
             >
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100/70 text-amber-800 transition-colors group-hover:bg-amber-200/80">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100/70 text-amber-800 transition-colors group-hover:bg-amber-900/10">
                 <svg
                   width={14}
                   height={14}
@@ -1514,7 +1514,7 @@ function CostSection({
           ) : (
             <>
               {builtinRows.map((r) => (
-                <tr key={r.id} className="group hover:bg-amber-50">
+                <tr key={r.id} className="group hover:bg-amber-900/5">
                   {showType && (
                     <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
                   )}
@@ -1539,7 +1539,7 @@ function CostSection({
                 </tr>
               ))}
               {custom.map((r) => (
-                <tr key={r.id} className="group hover:bg-amber-50">
+                <tr key={r.id} className="group hover:bg-amber-900/5">
                   {showType && (
                     <td className="px-5 py-2">
                       <BudgetDropdown
@@ -1569,7 +1569,7 @@ function CostSection({
                       }
                       placeholder="Category"
                       aria-label="Category"
-                      className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
+                      className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-900/5 focus:bg-amber-50 focus:outline-none"
                     />
                   </td>
                   <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
@@ -1584,7 +1584,7 @@ function CostSection({
                         onChange={(e) =>
                           onEditRow(section.id, r.id, { due: e.target.value })
                         }
-                        className="w-32 rounded-md bg-transparent px-2 py-1 text-sm text-amber-900/70 tabular-nums hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
+                        className="w-32 rounded-md bg-transparent px-2 py-1 text-sm text-amber-900/70 tabular-nums hover:bg-amber-900/5 focus:bg-amber-50 focus:outline-none"
                       />
                     </td>
                   )}
@@ -1685,7 +1685,7 @@ function VariableSection({
         </thead>
         <tbody className="divide-y divide-amber-900/10">
           {builtinRows.map((r) => (
-            <tr key={r.id} className="group hover:bg-amber-50">
+            <tr key={r.id} className="group hover:bg-amber-900/5">
               <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
               <td className="px-3 py-2 font-medium">{r.category}</td>
               <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
@@ -1702,7 +1702,7 @@ function VariableSection({
             </tr>
           ))}
           {custom.map((r) => (
-            <tr key={r.id} className="group hover:bg-amber-50">
+            <tr key={r.id} className="group hover:bg-amber-900/5">
               <td className="px-5 py-2">
                 <BudgetDropdown
                   variant="cell"
@@ -1726,7 +1726,7 @@ function VariableSection({
                   onChange={(e) => onEditRow(r.id, { category: e.target.value })}
                   placeholder="Category"
                   aria-label="Category"
-                  className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
+                  className="w-full rounded-md bg-transparent px-2 py-1 text-sm font-medium text-zinc-900 hover:bg-amber-900/5 focus:bg-amber-50 focus:outline-none"
                 />
               </td>
               <td className="px-3 py-2 text-center font-semibold tabular-nums text-zinc-900">
@@ -1849,7 +1849,7 @@ function RowModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-900"
           >
             <svg
               width={20}
@@ -2025,7 +2025,7 @@ function TableModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-900"
           >
             <svg
               width={20}
@@ -2152,7 +2152,7 @@ function AddRow({
         <button
           type="button"
           onClick={onClick}
-          className="flex w-full items-center justify-center gap-2 border-t border-dashed border-amber-200/70 px-5 py-2.5 text-sm font-medium text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900 focus-visible:bg-amber-50 focus-visible:text-amber-900 focus-visible:outline-none"
+          className="flex w-full items-center justify-center gap-2 border-t border-dashed border-amber-200/70 px-5 py-2.5 text-sm font-medium text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-900 focus-visible:bg-amber-50 focus-visible:text-amber-900 focus-visible:outline-none"
         >
           <svg
             width={16}
@@ -2208,7 +2208,7 @@ function EditButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-amber-900/40 transition-colors hover:bg-amber-100 hover:text-amber-900"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-amber-900/40 transition-colors hover:bg-amber-900/5 hover:text-amber-900"
     >
       <svg
         width={16}

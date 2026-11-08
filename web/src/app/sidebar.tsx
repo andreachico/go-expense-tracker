@@ -1,89 +1,122 @@
 "use client";
 
-// Left navigation. Links the two workspace views — "Variable Expense" (the
-// expense tracker at "/") and "Budget Sheet" (the monthly plan at "/budget") —
-// and highlights whichever one matches the current route.
+// Left navigation. Groups the workspace views under two sections — "Finance
+// Overview" (budgets, expenses, income, …) and "Year Overview" (the calendar of
+// holidays/birthdays/vacation) — and highlights whichever matches the route.
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { logout } from "@/lib/api";
 import type { User } from "@/lib/types";
 
-const NAV_ITEMS = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+};
+
+type NavGroup = {
+  title: string;
+  items: NavItem[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
   {
-    href: "/budget",
-    label: "Budget Sheet",
-    icon: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <circle cx="12" cy="12" r="5" />
-        <circle cx="12" cy="12" r="1" />
-      </>
-    ),
+    title: "Finance Overview",
+    items: [
+      {
+        href: "/budget",
+        label: "Budget Sheet",
+        icon: (
+          <>
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="12" r="5" />
+            <circle cx="12" cy="12" r="1" />
+          </>
+        ),
+      },
+      {
+        href: "/",
+        label: "Variable Expense",
+        icon: (
+          <>
+            <rect x="2" y="5" width="20" height="14" rx="2" />
+            <line x1="2" y1="10" x2="22" y2="10" />
+          </>
+        ),
+      },
+      {
+        href: "/income",
+        label: "Income",
+        icon: (
+          <>
+            <line x1="12" y1="19" x2="12" y2="5" />
+            <polyline points="5 12 12 5 19 12" />
+          </>
+        ),
+      },
+      {
+        href: "/savings",
+        label: "Savings",
+        icon: (
+          <>
+            <path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5Z" />
+            <line x1="16" y1="10" x2="16" y2="10" />
+          </>
+        ),
+      },
+      {
+        href: "/travel",
+        label: "Travel",
+        icon: (
+          <>
+            <rect x="3" y="7" width="18" height="13" rx="2" />
+            <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <line x1="12" y1="11" x2="12" y2="16" />
+          </>
+        ),
+      },
+      {
+        href: "/investments",
+        label: "Investments",
+        icon: (
+          <>
+            <line x1="3" y1="3" x2="3" y2="21" />
+            <line x1="3" y1="21" x2="21" y2="21" />
+            <polyline points="7 14 11 10 14 13 20 7" />
+            <polyline points="20 11 20 7 16 7" />
+          </>
+        ),
+      },
+      {
+        href: "/debts",
+        label: "Debts",
+        icon: (
+          <>
+            <rect x="2" y="5" width="20" height="14" rx="2" />
+            <line x1="2" y1="10" x2="22" y2="10" />
+            <line x1="6" y1="15" x2="10" y2="15" />
+          </>
+        ),
+      },
+    ],
   },
   {
-    href: "/",
-    label: "Variable Expense",
-    icon: (
-      <>
-        <rect x="2" y="5" width="20" height="14" rx="2" />
-        <line x1="2" y1="10" x2="22" y2="10" />
-      </>
-    ),
-  },
-  {
-    href: "/income",
-    label: "Income",
-    icon: (
-      <>
-        <line x1="12" y1="19" x2="12" y2="5" />
-        <polyline points="5 12 12 5 19 12" />
-      </>
-    ),
-  },
-  {
-    href: "/savings",
-    label: "Savings",
-    icon: (
-      <>
-        <path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5Z" />
-        <line x1="16" y1="10" x2="16" y2="10" />
-      </>
-    ),
-  },
-  {
-    href: "/travel",
-    label: "Travel",
-    icon: (
-      <>
-        <rect x="3" y="7" width="18" height="13" rx="2" />
-        <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-        <line x1="12" y1="11" x2="12" y2="16" />
-      </>
-    ),
-  },
-  {
-    href: "/investments",
-    label: "Investments",
-    icon: (
-      <>
-        <line x1="3" y1="3" x2="3" y2="21" />
-        <line x1="3" y1="21" x2="21" y2="21" />
-        <polyline points="7 14 11 10 14 13 20 7" />
-        <polyline points="20 11 20 7 16 7" />
-      </>
-    ),
-  },
-  {
-    href: "/debts",
-    label: "Debts",
-    icon: (
-      <>
-        <rect x="2" y="5" width="20" height="14" rx="2" />
-        <line x1="2" y1="10" x2="22" y2="10" />
-        <line x1="6" y1="15" x2="10" y2="15" />
-      </>
-    ),
+    title: "Year Overview",
+    items: [
+      {
+        href: "/year",
+        label: "Year at a Glance",
+        icon: (
+          <>
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </>
+        ),
+      },
+    ],
   },
 ];
 
@@ -114,37 +147,44 @@ export default function Sidebar() {
       <div className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wider text-amber-900/50">
         Workspace
       </div>
-      <nav className="flex flex-col gap-1">
-        {NAV_ITEMS.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${
-                active
-                  ? "bg-amber-900/90 text-amber-50"
-                  : "text-amber-900/70 hover:bg-amber-900/5"
-              }`}
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                {item.icon}
-              </svg>
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex flex-col gap-4">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.title} className="flex flex-col gap-1">
+            <div className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wider text-amber-900/40">
+              {group.title}
+            </div>
+            {group.items.map((item) => {
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium ${
+                    active
+                      ? "bg-amber-900/90 text-amber-50"
+                      : "text-amber-900/70 hover:bg-amber-900/5"
+                  }`}
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    {item.icon}
+                  </svg>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <UserMenu />

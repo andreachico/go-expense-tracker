@@ -83,7 +83,7 @@ export default function BudgetDropdown({
   const triggerClass =
     variant === "field"
       ? "flex w-full items-center justify-between gap-2 rounded-xl border border-amber-900/15 bg-amber-50/40 px-3.5 py-2.5 text-sm shadow-sm transition-colors hover:border-amber-600/40 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-600/20"
-      : "flex w-full items-center justify-between gap-1 rounded-md border border-amber-900/15 bg-amber-50/50 px-2 py-1 text-sm transition-colors hover:border-amber-600/40 hover:bg-amber-50 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20";
+      : "flex w-full items-center justify-between gap-1 rounded-md border border-amber-900/15 bg-amber-50/50 px-2 py-1 text-sm transition-colors hover:border-amber-600/40 hover:bg-amber-900/5 focus:border-amber-600 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-600/20";
 
   return (
     <>
@@ -145,7 +145,7 @@ export default function BudgetDropdown({
                 className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${
                   opt === value
                     ? "bg-linear-to-br from-amber-800 to-amber-600 font-semibold text-amber-50 shadow-sm shadow-amber-900/20"
-                    : "text-zinc-800 hover:bg-amber-50"
+                    : "text-zinc-800 hover:bg-amber-900/5"
                 }`}
               >
                 <span className="truncate">{opt}</span>
@@ -199,7 +199,7 @@ export default function BudgetDropdown({
                       setAdding(true);
                       setDraft("");
                     }}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-amber-800 transition-colors hover:bg-amber-50"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-amber-800 transition-colors hover:bg-amber-900/5"
                   >
                     <svg
                       width={16}
