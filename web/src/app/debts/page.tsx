@@ -501,7 +501,7 @@ export default function DebtsPage() {
                   const done = i.paidMonths >= i.termMonths;
                   const editing = editingId === i.id;
                   return (
-                    <tr key={i.id} className="group hover:bg-amber-50/40">
+                    <tr key={i.id} className="group hover:bg-amber-900/5">
                       <td className="px-4 py-4 align-top">
                         {editing ? (
                           <div className="flex flex-col gap-2">
@@ -655,7 +655,7 @@ function RowActions({
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="rounded-md border border-amber-900/20 px-2.5 py-1 text-xs font-semibold text-amber-900/70 transition-colors hover:bg-amber-50 disabled:opacity-60"
+          className="rounded-md border border-amber-900/20 px-2.5 py-1 text-xs font-semibold text-amber-900/70 transition-colors hover:bg-amber-900/5 disabled:opacity-60"
         >
           Cancel
         </button>
@@ -668,7 +668,7 @@ function RowActions({
         type="button"
         onClick={onEdit}
         aria-label={`Edit ${name}`}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-800"
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-800"
       >
         <svg
           width="16"

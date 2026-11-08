@@ -7,6 +7,7 @@
 // localStorage, so no backend round-trip is needed.
 import { useEffect, useRef, useState } from "react";
 import { getBudgetBreakdown, getBudgetPlan } from "@/lib/api";
+import DatePicker from "../date-picker";
 
 const currency = new Intl.NumberFormat("en-IE", {
   style: "currency",
@@ -332,7 +333,7 @@ export default function TravelPage() {
               type="button"
               onClick={() => setRefYear((y) => String(Number(y) - 1))}
               aria-label="Previous year"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
             >
               <Chevron dir="left" />
             </button>
@@ -343,7 +344,7 @@ export default function TravelPage() {
               type="button"
               onClick={() => setRefYear((y) => String(Number(y) + 1))}
               aria-label="Next year"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
             >
               <Chevron dir="right" />
             </button>
@@ -416,7 +417,7 @@ export default function TravelPage() {
         <button
           type="button"
           onClick={() => setDestModal({ mode: "add" })}
-          className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-amber-900/20 bg-white/40 px-6 py-14 text-center transition-colors hover:border-amber-700/40 hover:bg-amber-50/40"
+          className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-amber-900/20 bg-white/40 px-6 py-14 text-center transition-colors hover:border-amber-700/40 hover:bg-amber-900/5"
         >
           <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
             <PlusIcon size={24} />
@@ -504,7 +505,7 @@ function DestinationCard({
             type="button"
             onClick={onEdit}
             aria-label={`Edit ${dest.city}`}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-100 hover:text-amber-900"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-900"
           >
             <PencilIcon />
           </button>
@@ -573,7 +574,7 @@ function DestinationCard({
             </tr>
           ) : (
             dest.items.map((item) => (
-              <tr key={item.id} className="group hover:bg-amber-50/50">
+              <tr key={item.id} className="group hover:bg-amber-900/5">
                 <td className="px-6 py-3">
                   <div className="font-medium text-zinc-900">{item.label}</div>
                   {item.note && (
@@ -599,7 +600,7 @@ function DestinationCard({
                       type="button"
                       onClick={() => onEditItem(item)}
                       aria-label={`Edit ${item.label}`}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-100 hover:text-amber-900"
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-900"
                     >
                       <PencilIcon size={15} />
                     </button>
@@ -622,7 +623,7 @@ function DestinationCard({
               <button
                 type="button"
                 onClick={onAddItem}
-                className="flex w-full items-center gap-2 border-t border-dashed border-amber-900/15 px-6 py-3 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-50"
+                className="flex w-full items-center gap-2 border-t border-dashed border-amber-900/15 px-6 py-3 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-900/5"
               >
                 <PlusIcon size={16} />
                 Add item
@@ -947,7 +948,7 @@ function ModalShell({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-900"
           >
             <CloseIcon />
           </button>
@@ -970,172 +971,6 @@ function Field({
       <span className="text-sm font-medium text-zinc-900">{label}</span>
       {children}
     </label>
-  );
-}
-
-// A modern, amber-themed date picker: a styled trigger that opens a calendar
-// popover. `value`/`onChange` use ISO "YYYY-MM-DD" strings; `min` disables
-// earlier days. Weeks start on Monday.
-const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
-
-function DatePicker({
-  value,
-  min,
-  onChange,
-  placeholder = "Select date",
-}: {
-  value: string;
-  min?: string;
-  onChange: (iso: string) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [view, setView] = useState(() =>
-    value ? value.slice(0, 7) : currentMonth(),
-  );
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Keep the calendar on the selected month whenever it (re)opens.
-  useEffect(() => {
-    if (open) setView(value ? value.slice(0, 7) : currentMonth());
-  }, [open, value]);
-
-  // Close on outside click or Escape.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const [vy, vm] = view.split("-").map(Number);
-  const startWeekday = (new Date(vy, vm - 1, 1).getDay() + 6) % 7; // Mon-first
-  const daysInMonth = new Date(vy, vm, 0).getDate();
-  const cells: (number | null)[] = [
-    ...Array<null>(startWeekday).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-
-  const isoFor = (d: number) =>
-    `${vy}-${String(vm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  const todayIso = new Date().toISOString().slice(0, 10);
-
-  const display = value
-    ? new Date(`${value}T00:00:00`).toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      })
-    : "";
-
-  function shiftMonth(delta: number) {
-    const d = new Date(vy, vm - 1 + delta, 1);
-    setView(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={`${fieldClass} flex items-center justify-between gap-2 text-left`}
-      >
-        <span className={display ? "text-zinc-900" : "text-amber-900/40"}>
-          {display || placeholder}
-        </span>
-        <span className="text-amber-900/50">
-          <CalendarIcon />
-        </span>
-      </button>
-
-      {open && (
-        <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-amber-900/15 bg-white p-4 shadow-xl shadow-amber-900/10">
-          <div className="mb-3 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => shiftMonth(-1)}
-              aria-label="Previous month"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-100"
-            >
-              <Chevron dir="left" />
-            </button>
-            <span className="text-sm font-semibold text-amber-900">
-              {monthLabel(view, { month: "long", year: "numeric" })}
-            </span>
-            <button
-              type="button"
-              onClick={() => shiftMonth(1)}
-              aria-label="Next month"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-100"
-            >
-              <Chevron dir="right" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase tracking-wide text-amber-900/40">
-            {WEEKDAYS.map((d) => (
-              <div key={d} className="py-1">
-                {d}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-1 grid grid-cols-7 gap-1">
-            {cells.map((d, i) => {
-              if (d === null) return <div key={`e${i}`} />;
-              const iso = isoFor(d);
-              const selected = value === iso;
-              const isToday = iso === todayIso;
-              const disabled = min ? iso < min : false;
-              return (
-                <button
-                  key={iso}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    onChange(iso);
-                    setOpen(false);
-                  }}
-                  className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors ${
-                    selected
-                      ? "bg-linear-to-br from-amber-800 to-amber-600 font-semibold text-amber-50 shadow-sm shadow-amber-900/20"
-                      : isToday
-                        ? "font-semibold text-amber-900 ring-1 ring-inset ring-amber-600/40 hover:bg-amber-100"
-                        : "text-zinc-700 hover:bg-amber-100"
-                  } disabled:cursor-not-allowed disabled:text-amber-900/20 disabled:hover:bg-transparent`}
-                >
-                  {d}
-                </button>
-              );
-            })}
-          </div>
-
-          {value && (
-            <button
-              type="button"
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-              }}
-              className="mt-3 w-full rounded-lg py-1.5 text-xs font-medium text-amber-900/60 transition-colors hover:bg-amber-50 hover:text-amber-900"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -1222,7 +1057,7 @@ function MonthPicker({
               type="button"
               onClick={() => setYear((y) => y - 1)}
               aria-label="Previous year"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-100"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
             >
               <Chevron dir="left" />
             </button>
@@ -1231,7 +1066,7 @@ function MonthPicker({
               type="button"
               onClick={() => setYear((y) => y + 1)}
               aria-label="Next year"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-100"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
             >
               <Chevron dir="right" />
             </button>
@@ -1251,7 +1086,7 @@ function MonthPicker({
                   className={`rounded-lg py-2 text-sm transition-colors ${
                     selected
                       ? "bg-linear-to-br from-amber-800 to-amber-600 font-semibold text-amber-50 shadow-sm shadow-amber-900/20"
-                      : "text-zinc-700 hover:bg-amber-100"
+                      : "text-zinc-700 hover:bg-amber-900/5"
                   }`}
                 >
                   {m}
@@ -1324,7 +1159,7 @@ function StatusPicker({
                 onChange(s);
                 setOpen(false);
               }}
-              className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-amber-50 ${
+              className={`flex w-full items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-amber-900/5 ${
                 value === s ? "bg-amber-50" : ""
               }`}
             >

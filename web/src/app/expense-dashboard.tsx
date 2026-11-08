@@ -390,7 +390,7 @@ export default function ExpenseDashboard({
               type="button"
               onClick={() => shiftPeriod(-1)}
               aria-label="Previous month"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
             >
               <svg
                 width={18}
@@ -413,7 +413,7 @@ export default function ExpenseDashboard({
               type="button"
               onClick={() => shiftPeriod(1)}
               aria-label="Next month"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-50"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/70 transition-colors hover:bg-amber-900/5"
             >
               <svg
                 width={18}
@@ -583,7 +583,7 @@ export default function ExpenseDashboard({
           {shownExpenses.map((e) => (
             <li
               key={e.id}
-              className="flex items-center gap-4 bg-white px-5 py-3 text-sm text-zinc-900 hover:bg-amber-50"
+              className="flex items-center gap-4 bg-white px-5 py-3 text-sm text-zinc-900 hover:bg-amber-900/5"
             >
               <span className="flex min-w-0 flex-1 items-center gap-3">
                 <CategoryIcon category={e.category} />
@@ -733,7 +733,7 @@ function AddExpenseModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-50 hover:text-amber-900"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-900/50 transition-colors hover:bg-amber-900/5 hover:text-amber-900"
           >
             <svg
               width={20}
