@@ -1541,24 +1541,7 @@ function CostSection({
               {custom.map((r) => (
                 <tr key={r.id} className="group hover:bg-amber-900/5">
                   {showType && (
-                    <td className="px-5 py-2">
-                      <BudgetDropdown
-                        variant="cell"
-                        value={r.type}
-                        options={
-                          typeOptions.includes(r.type) || !r.type
-                            ? typeOptions
-                            : [r.type, ...typeOptions]
-                        }
-                        onChange={(v) =>
-                          onEditRow(section.id, r.id, { type: v })
-                        }
-                        onAddNew={onAddType}
-                        placeholder="Type"
-                        addLabel="Add new type…"
-                        ariaLabel="Type"
-                      />
-                    </td>
+                    <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
                   )}
                   <td className="px-3 py-2">
                     <input
@@ -1703,22 +1686,7 @@ function VariableSection({
           ))}
           {custom.map((r) => (
             <tr key={r.id} className="group hover:bg-amber-900/5">
-              <td className="px-5 py-2">
-                <BudgetDropdown
-                  variant="cell"
-                  value={r.type}
-                  options={
-                    typeOptions.includes(r.type) || !r.type
-                      ? typeOptions
-                      : [r.type, ...typeOptions]
-                  }
-                  onChange={(v) => onEditRow(r.id, { type: v })}
-                  onAddNew={onAddType}
-                  placeholder="Type"
-                  addLabel="Add new type…"
-                  ariaLabel="Type"
-                />
-              </td>
+              <td className="px-5 py-2 text-amber-900/70">{r.type}</td>
               <td className="px-3 py-2">
                 <input
                   type="text"

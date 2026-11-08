@@ -194,32 +194,48 @@ function WhereItWent({ data }: { data: Segment[] }) {
                 r={radius}
                 fill="none"
                 stroke="#f0e6d6"
-                strokeWidth="24"
+                strokeWidth="14"
               />
             ) : (
-              segments.map((s) => {
-                const dash = s.fraction * circumference;
-                const offset = -cumulative * circumference;
-                cumulative += s.fraction;
-                return (
-                  <circle
-                    key={s.category}
-                    cx="80"
-                    cy="80"
-                    r={radius}
-                    fill="none"
-                    stroke={s.color}
-                    strokeWidth="24"
-                    strokeDasharray={`${dash} ${circumference - dash}`}
-                    strokeDashoffset={offset}
-                  />
-                );
-              })
+              <>
+                {/* Background track so any sub-pixel seam between slices never
+                    reads as a broken gap in the ring. */}
+                <circle
+                  cx="80"
+                  cy="80"
+                  r={radius}
+                  fill="none"
+                  stroke="#f0e6d6"
+                  strokeWidth="14"
+                />
+                {segments.map((s) => {
+                  // Extend each slice by a tiny overlap so adjacent arcs meet
+                  // with no anti-aliased seam. The next slice (drawn on top)
+                  // covers the overlap, so proportions stay correct.
+                  const overlap = s.fraction < 1 ? 0.75 : 0;
+                  const dash = s.fraction * circumference + overlap;
+                  const offset = -cumulative * circumference;
+                  cumulative += s.fraction;
+                  return (
+                    <circle
+                      key={s.category}
+                      cx="80"
+                      cy="80"
+                      r={radius}
+                      fill="none"
+                      stroke={s.color}
+                      strokeWidth="14"
+                      strokeDasharray={`${dash} ${circumference - dash}`}
+                      strokeDashoffset={offset}
+                    />
+                  );
+                })}
+              </>
             )}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-sm text-amber-900/70">Total spent</span>
-            <span className="text-2xl font-semibold tabular-nums text-zinc-900">
+            <span className="text-xs text-amber-900/70">Total spent</span>
+            <span className="text-xl font-semibold tabular-nums text-zinc-900">
               {currency.format(total)}
             </span>
           </div>
